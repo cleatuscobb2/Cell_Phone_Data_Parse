@@ -1,0 +1,35 @@
+{
+  "conversations": [
+    {
+      "participants": ["Dave"],
+      "messages": [
+        {"timestamp": "2024-01-06T18:00:00", "sender": "Me", "body": "Reminder you're picking up Emma and Liam at 5 on Friday for the weekend.", "type": "sent"},
+        {"timestamp": "2024-01-06T20:30:00", "sender": "Dave", "body": "Something came up at work, can't take them this weekend. Maybe next time.", "type": "received"},
+        {"timestamp": "2024-01-06T20:45:00", "sender": "Me", "body": "That's the third weekend in a row. I'll keep them then.", "type": "sent"},
+        {"timestamp": "2024-02-02T17:00:00", "sender": "Me", "body": "Emma has a doctor checkup Feb 9. I've scheduled it for 10am.", "type": "sent"},
+        {"timestamp": "2024-02-09T13:00:00", "sender": "Me", "body": "Took Emma to her checkup, all good. You weren't able to make it.", "type": "sent"},
+        {"timestamp": "2024-02-20T19:00:00", "sender": "Me", "body": "Parent-teacher conference is Thursday at 4. Are you coming?", "type": "sent"},
+        {"timestamp": "2024-02-22T16:30:00", "sender": "Me", "body": "I went to the conference for both kids. You didn't reply.", "type": "sent"},
+        {"timestamp": "2024-03-15T08:00:00", "sender": "Dave", "body": "Can we move my weekend? I'd rather take them the following week.", "type": "received"},
+        {"timestamp": "2024-03-15T08:20:00", "sender": "Me", "body": "Okay, but the kids were disappointed again.", "type": "sent"},
+        {"timestamp": "2024-03-29T17:30:00", "sender": "Dave", "body": "Running late for pickup, probably 7 instead of 5.", "type": "received"},
+        {"timestamp": "2024-03-31T19:00:00", "sender": "Dave", "body": "Dropping the kids back early, I have plans tonight.", "type": "received"},
+        {"timestamp": "2024-05-10T12:00:00", "sender": "Me", "body": "Liam has been with me every day this month. Let me know if you want a visit.", "type": "sent"}
+      ]
+    },
+    {
+      "participants": ["Mom"],
+      "messages": [
+        {"timestamp": "2024-02-09T15:00:00", "sender": "Mom", "body": "Glad Emma's checkup went well. You always handle these — Dave never seems to be around.", "type": "received"},
+        {"timestamp": "2024-03-02T10:00:00", "sender": "Mom", "body": "I had Emma and Liam overnight so you could work. Dave hasn't visited in weeks.", "type": "received"}
+      ]
+    },
+    {
+      "participants": ["Lincoln Elementary"],
+      "messages": [
+        {"timestamp": "2024-04-12T09:00:00", "sender": "Lincoln Elementary", "body": "Reminder: you are listed as the primary emergency contact for Emma and Liam. Please confirm pickup for early dismissal.", "type": "received"},
+        {"timestamp": "2024-04-12T09:15:00", "sender": "Me", "body": "Confirmed, I'll pick them up at noon.", "type": "sent"}
+      ]
+    }
+  ]
+}

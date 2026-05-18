@@ -1,0 +1,26 @@
+{
+  "conversations": [
+    {
+      "participants": ["Alice"],
+      "messages": [
+        {"timestamp": "2024-01-05T09:00:00", "sender": "Alice", "body": "Morning! Are we still on for the project kickoff today?", "type": "received"},
+        {"timestamp": "2024-01-05T09:05:00", "sender": "Me", "body": "Yes! I'll send the agenda over in an hour.", "type": "sent"},
+        {"timestamp": "2024-01-05T11:30:00", "sender": "Alice", "body": "Got it, looks great. Can you also book the conference room for Friday?", "type": "received"},
+        {"timestamp": "2024-01-05T11:32:00", "sender": "Me", "body": "Will do, I'll handle the booking.", "type": "sent"},
+        {"timestamp": "2024-02-12T14:00:00", "sender": "Alice", "body": "The client loved the demo!! Huge win for us.", "type": "received"},
+        {"timestamp": "2024-02-12T14:10:00", "sender": "Me", "body": "Amazing news, so relieved. Great teamwork.", "type": "sent"},
+        {"timestamp": "2024-03-20T17:00:00", "sender": "Alice", "body": "Heads up, the budget got cut and we need to rescope by next week.", "type": "received"},
+        {"timestamp": "2024-03-20T17:15:00", "sender": "Me", "body": "Ugh, frustrating. I'll draft a reduced scope and we can review Monday.", "type": "sent"}
+      ]
+    },
+    {
+      "participants": ["Mom"],
+      "messages": [
+        {"timestamp": "2024-01-20T19:00:00", "sender": "Mom", "body": "Don't forget your dentist appointment on the 25th!", "type": "received"},
+        {"timestamp": "2024-01-20T19:30:00", "sender": "Me", "body": "Thanks for the reminder, I'll be there.", "type": "sent"},
+        {"timestamp": "2024-03-02T12:00:00", "sender": "Mom", "body": "Call me when you can, nothing urgent, just miss you.", "type": "received"},
+        {"timestamp": "2024-03-02T20:00:00", "sender": "Me", "body": "Sorry busy week! Calling tonight.", "type": "sent"}
+      ]
+    }
+  ]
+}
