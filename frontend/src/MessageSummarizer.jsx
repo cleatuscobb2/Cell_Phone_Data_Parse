@@ -29,8 +29,22 @@ import {
 } from "recharts";
 import CustodyReport from "./CustodyReport.jsx";
 import LoadingAnimation from "./LoadingAnimation.jsx";
+import { getIdToken } from "./firebase.js";
 
-const API_BASE = "http://localhost:8000";
+// Local dev defaults to the FastAPI proxy; production sets VITE_API_BASE to
+// the deployed Firebase function URL.
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+/**
+ * fetch() against the backend, attaching the Firebase ID token when the user
+ * is signed in. With auth disabled (local dev) no header is added.
+ */
+async function apiFetch(path, options = {}) {
+  const token = await getIdToken();
+  const headers = { ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(`${API_BASE}${path}`, { ...options, headers });
+}
 
 const PRIORITY_STYLES = {
   high: "bg-red-100 text-red-700 ring-red-200",
@@ -153,7 +167,7 @@ export default function MessageSummarizer() {
       if (textF) form.append("file", textF);
       if (emailF) form.append("email_file", emailF);
       if (email?.trim()) form.append("user_email", email.trim());
-      const res = await fetch(`${API_BASE}/contacts`, { method: "POST", body: form });
+      const res = await apiFetch("/contacts", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Failed to read file (${res.status})`);
       setContacts(data.contacts);
@@ -221,7 +235,7 @@ export default function MessageSummarizer() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: form });
+      const res = await apiFetch(endpoint, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
       setResult(data);
@@ -244,7 +258,7 @@ export default function MessageSummarizer() {
           Message History Summarizer
         </h1>
         <p className="text-sm text-slate-500">
-          Your messages are processed locally and never stored.
+          Your messages are processed in memory for analysis and never stored.
         </p>
       </header>
 

@@ -1,11 +1,21 @@
-# Secrets — never commit
+# Secrets / local env — never commit
 .env
+.env.local
+.env.*.local
 
 # Python
 .venv/
+venv/
 __pycache__/
 *.pyc
 
 # Node / frontend build
 node_modules/
 dist/
+
+# Vercel
+.vercel/
+
+# Firebase
+.firebase/
+firebase-debug.log
