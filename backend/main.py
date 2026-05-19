@@ -53,12 +53,16 @@ MAX_INPUT_TOKENS = 900_000
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
 
 app = FastAPI(title="Message History Summarizer")
+# Allow localhost dev plus this project's Vercel domains (production +
+# Vercel-generated preview deploys). Override with ALLOWED_ORIGIN_REGEX
+# if the project is renamed or a custom domain is used.
+_DEFAULT_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    r"|^https://cell-phone-data-parse(-[a-z0-9-]+)?\.vercel\.app$"
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(","),
+    allow_origin_regex=os.getenv("ALLOWED_ORIGIN_REGEX", _DEFAULT_ORIGIN_REGEX),
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )

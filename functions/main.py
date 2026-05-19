@@ -20,10 +20,12 @@ One function ("api") serves every route, dispatched on the request path:
 
 from __future__ import annotations
 
+import contextvars
 import csv
 import io
 import json
 import os
+import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -867,14 +869,28 @@ def handle_custody(req: https_fn.Request) -> dict:
 # --- HTTP plumbing ------------------------------------------------------------
 
 # The frontend is hosted on a different origin (Vercel), so cross-origin
-# requests need CORS. Auth is by bearer token, not cookies, so a permissive
-# origin is acceptable; tighten ALLOWED_ORIGIN if you want to lock it down.
-_ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
+# requests need CORS. Auth is by bearer token, not cookies. Allow localhost
+# dev plus this project's Vercel domains (production + preview deploys);
+# override with ALLOWED_ORIGIN_REGEX if the project is renamed or a custom
+# domain is used.
+_DEFAULT_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    r"|^https://cell-phone-data-parse(-[a-z0-9-]+)?\.vercel\.app$"
+)
+_ORIGIN_RE = re.compile(
+    os.environ.get("ALLOWED_ORIGIN_REGEX", _DEFAULT_ORIGIN_REGEX)
+)
+_request_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_origin", default=""
+)
 
 
 def _cors_headers() -> dict:
+    """CORS headers — echoes the request's Origin if it matches the allow regex."""
+    origin = _request_origin.get()
+    allowed = origin if origin and _ORIGIN_RE.match(origin) else ""
     return {
-        "Access-Control-Allow-Origin": _ALLOWED_ORIGIN,
+        "Access-Control-Allow-Origin": allowed,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type",
         "Access-Control-Max-Age": "3600",
@@ -908,6 +924,9 @@ def _require_auth(req: https_fn.Request) -> None:
 )
 def api(req: https_fn.Request) -> https_fn.Response:
     """Single HTTPS entry point. Dispatches on the request path."""
+    # Remember the request origin for the duration of this invocation so the
+    # CORS-header builder can echo it back when it matches the allow regex.
+    _request_origin.set(req.headers.get("Origin", ""))
     if req.method == "OPTIONS":
         return https_fn.Response("", status=204, headers=_cors_headers())
 
