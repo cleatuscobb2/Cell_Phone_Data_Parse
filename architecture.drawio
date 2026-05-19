@@ -34,10 +34,10 @@
         <mxCell id="w-upload" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Upload text and / or&lt;br&gt;email files" vertex="1">
           <mxGeometry height="54" width="210" x="495" y="295" as="geometry" />
         </mxCell>
-        <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, WV intake, filters)" vertex="1">
+        <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, state intake, filters)" vertex="1">
           <mxGeometry height="54" width="210" x="495" y="395" as="geometry" />
         </mxCell>
-        <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer WV custody intake&lt;br&gt;(7 case-profile logic questions)" vertex="1">
+        <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer the selected state's custody intake&lt;br&gt;(state-gated logic questions — WV today)" vertex="1">
           <mxGeometry height="50" width="250" x="765" y="297" as="geometry" />
         </mxCell>
         <mxCell id="w-formpacket" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Determine required WV form packet&lt;br&gt;(Logic Path ruleset over 15 forms)" vertex="1">
@@ -115,10 +115,10 @@
         <mxCell id="w-rsum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render summary view&lt;br&gt;(insights, charts)" vertex="1">
           <mxGeometry height="54" width="210" x="270" y="1860" as="geometry" />
         </mxCell>
-        <mxCell id="w-rcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render custody report&lt;br&gt;(charts, timeline, evidence, required forms)" vertex="1">
+        <mxCell id="w-rcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render custody report&lt;br&gt;(charts, message-linked timeline, evidence, forms)" vertex="1">
           <mxGeometry height="54" width="230" x="790" y="1770" as="geometry" />
         </mxCell>
-        <mxCell id="w-export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Download PDF report or&lt;br&gt;Excel evidence workbook" vertex="1">
+        <mxCell id="w-export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Download PDF report (portrait /&lt;br&gt;landscape) or Excel evidence workbook" vertex="1">
           <mxGeometry height="54" width="230" x="790" y="1860" as="geometry" />
         </mxCell>
         <mxCell id="w-end" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Done" vertex="1">
@@ -254,8 +254,8 @@
         <mxCell id="er-uploadfile" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;UploadFile&lt;/b&gt;&lt;hr&gt;filename&lt;br&gt;channel : text | email&lt;br&gt;raw_bytes" vertex="1">
           <mxGeometry height="92" width="220" x="40" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="er-message" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Message&lt;/b&gt;&lt;hr&gt;timestamp&lt;br&gt;sender&lt;br&gt;body&lt;br&gt;conversation&lt;br&gt;from_me : bool&lt;br&gt;channel&lt;br&gt;attachments[ ]" vertex="1">
-          <mxGeometry height="152" width="220" x="40" y="190" as="geometry" />
+        <mxCell id="er-message" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Message&lt;/b&gt;&lt;hr&gt;timestamp&lt;br&gt;sender&lt;br&gt;body&lt;br&gt;conversation&lt;br&gt;from_me : bool&lt;br&gt;channel&lt;br&gt;ref : T# / E#&lt;br&gt;attachments[ ]" vertex="1">
+          <mxGeometry height="168" width="220" x="40" y="190" as="geometry" />
         </mxCell>
         <mxCell id="er-conversation" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Conversation&lt;/b&gt;&lt;hr&gt;name&lt;br&gt;message_count&lt;br&gt;first_date&lt;br&gt;last_date" vertex="1">
           <mxGeometry height="106" width="220" x="40" y="382" as="geometry" />
@@ -299,20 +299,20 @@
         <mxCell id="er-breakdown" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CustodyBreakdown&lt;/b&gt;&lt;hr&gt;instances_with_mother&lt;br&gt;instances_with_father&lt;br&gt;instances_shared&lt;br&gt;instances_unclear&lt;br&gt;estimated_pct_mother&lt;br&gt;estimated_pct_father" vertex="1">
           <mxGeometry height="134" width="250" x="980" y="206" as="geometry" />
         </mxCell>
-        <mxCell id="er-childcare" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ChildcareEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;parent&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
-          <mxGeometry height="134" width="250" x="980" y="380" as="geometry" />
+        <mxCell id="er-childcare" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ChildcareEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;parent&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel&lt;br&gt;source_ref → Message" vertex="1">
+          <mxGeometry height="148" width="250" x="980" y="380" as="geometry" />
         </mxCell>
-        <mxCell id="er-missed" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;MissedVisit&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;kind&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
-          <mxGeometry height="134" width="250" x="980" y="554" as="geometry" />
+        <mxCell id="er-missed" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;MissedVisit&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;kind&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel&lt;br&gt;source_ref → Message" vertex="1">
+          <mxGeometry height="148" width="250" x="980" y="554" as="geometry" />
         </mxCell>
         <mxCell id="er-gap" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CommunicationGap&lt;/b&gt;&lt;hr&gt;start_date&lt;br&gt;end_date&lt;br&gt;days&lt;br&gt;description" vertex="1">
           <mxGeometry height="106" width="250" x="1300" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="er-resp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ResponsibilityEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;category&lt;br&gt;subcategory&lt;br&gt;responsible_party&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
-          <mxGeometry height="166" width="250" x="1300" y="206" as="geometry" />
+        <mxCell id="er-resp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ResponsibilityEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;category&lt;br&gt;subcategory&lt;br&gt;responsible_party&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel&lt;br&gt;source_ref → Message" vertex="1">
+          <mxGeometry height="180" width="250" x="1300" y="206" as="geometry" />
         </mxCell>
-        <mxCell id="er-thirdparty" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ThirdPartyStatement&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;source&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;channel" vertex="1">
-          <mxGeometry height="120" width="250" x="1300" y="412" as="geometry" />
+        <mxCell id="er-thirdparty" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ThirdPartyStatement&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;source&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;channel&lt;br&gt;source_ref → Message" vertex="1">
+          <mxGeometry height="134" width="250" x="1300" y="412" as="geometry" />
         </mxCell>
         <mxCell id="er-suggestion" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Suggestion&lt;/b&gt;&lt;hr&gt;category&lt;br&gt;suggestion&lt;br&gt;related_date" vertex="1">
           <mxGeometry height="92" width="250" x="1300" y="572" as="geometry" />
@@ -402,6 +402,12 @@
         </mxCell>
         <mxCell id="re24" edge="1" parent="1" source="er-caseprofile" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-courtform" value="determines required packet">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er-note-ref" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Message reference IDs&lt;/b&gt;&lt;br&gt;Each Message carries a stable ref — T1, T2… for texts and E1, E2… for emails. Childcare, Missed, Responsibility &amp;amp; Third-Party events are traced to their source Message by verbatim-quote match and cite that ref in the timeline, PDF &amp;amp; Excel reports." vertex="1">
+          <mxGeometry height="130" width="300" x="340" y="566" as="geometry" />
+        </mxCell>
+        <mxCell id="er-note-state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Per-state registry&lt;/b&gt;&lt;br&gt;The intake questionnaire (CaseProfile fields) and the required form packet are registered per State — stateIntake.js plus the WV Logic Path ruleset today. A state with no registered intake skips the questionnaire." vertex="1">
+          <mxGeometry height="140" width="260" x="1620" y="384" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
