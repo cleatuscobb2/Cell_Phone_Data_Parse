@@ -59,8 +59,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     textAlign: "center",
     letterSpacing: 0.3,
+    lineHeight: 1.2,
+    marginBottom: 7,
   },
-  headerMeta: { fontSize: 8.5, color: "#64748b", marginTop: 3, textAlign: "center" },
+  headerMeta: { fontSize: 8.5, color: "#64748b", marginTop: 4, textAlign: "center" },
   subtitle: { fontSize: 9, color: "#64748b", marginTop: 2 },
   h2: {
     fontSize: 12,
@@ -509,8 +511,9 @@ const PLOT_W = 420;
 const LABEL_W = 95;
 const LANE_H = 34;
 
-/** One year's swim-lane timeline — a full Jan–Dec span with month gridlines. */
-function PdfTimeline({ model }) {
+/** One year's swim-lane timeline — a full Jan–Dec span with month gridlines.
+    `plotW` widens the plotting area for the landscape layout. */
+function PdfTimeline({ model, plotW = PLOT_W }) {
   // Shrink markers when a lane is dense so overlap reads as a pattern.
   const totalPoints = model.lanes.reduce((s, l) => s + l.points.length, 0);
   const mk = totalPoints > 120 ? 4 : totalPoints > 60 ? 5 : 7;
@@ -528,13 +531,13 @@ function PdfTimeline({ model }) {
       {/* Month axis */}
       <View style={{ flexDirection: "row", marginTop: 2 }}>
         <View style={{ width: LABEL_W }} />
-        <View style={{ width: PLOT_W, height: 10 }}>
+        <View style={{ width: plotW, height: 10 }}>
           {model.ticks.map((t, i) => (
             <Text
               key={i}
               style={{
                 position: "absolute",
-                left: t.frac * PLOT_W + 1.5,
+                left: t.frac * plotW + 1.5,
                 width: 28,
                 textAlign: "left",
                 fontSize: 6,
@@ -560,7 +563,7 @@ function PdfTimeline({ model }) {
           </View>
           <View
             style={{
-              width: PLOT_W,
+              width: plotW,
               height: LANE_H,
               backgroundColor: li % 2 === 0 ? "#f8fafc" : "#ffffff",
               borderLeftWidth: 1,
@@ -572,7 +575,7 @@ function PdfTimeline({ model }) {
                 key={`g${i}`}
                 style={{
                   position: "absolute",
-                  left: t.frac * PLOT_W,
+                  left: t.frac * plotW,
                   top: 0,
                   width: 0.5,
                   height: LANE_H,
@@ -585,9 +588,9 @@ function PdfTimeline({ model }) {
                 key={`s${j}`}
                 style={{
                   position: "absolute",
-                  left: s.startFrac * PLOT_W,
+                  left: s.startFrac * plotW,
                   top: LANE_H / 2 - 4,
-                  width: Math.max(2, (s.endFrac - s.startFrac) * PLOT_W),
+                  width: Math.max(2, (s.endFrac - s.startFrac) * plotW),
                   height: 8,
                   backgroundColor: lane.color,
                   opacity: 0.5,
@@ -600,7 +603,7 @@ function PdfTimeline({ model }) {
                 key={`p${j}`}
                 style={{
                   position: "absolute",
-                  left: p.frac * PLOT_W - mk / 2,
+                  left: p.frac * plotW - mk / 2,
                   top: LANE_H / 2 - mk / 2,
                   width: mk,
                   height: mk,
@@ -620,7 +623,7 @@ function PdfTimeline({ model }) {
                   key={`r${j}`}
                   style={{
                     position: "absolute",
-                    left: p.frac * PLOT_W - 11,
+                    left: p.frac * plotW - 11,
                     top: LANE_H / 2 - mk / 2 - 7,
                     width: 22,
                     textAlign: "center",
@@ -701,8 +704,14 @@ function Section({ title, items, empty, render, chart }) {
   );
 }
 
-export default function CustodyReportPDF({ data }) {
+export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   const { meta, custody_breakdown: cb, report, transcript = [] } = data;
+  const landscape = orientation === "landscape";
+  // Landscape gives the timeline more horizontal room — the chief reason
+  // for offering the alternate layout. The plot must fit the page content
+  // box: 712pt wide in landscape (792 − 80 padding), less the 95pt lane-label
+  // column and a few pt of marker-label overhang on the right edge.
+  const timelinePlotW = landscape ? 600 : PLOT_W;
   const timeline = buildYearlyTimelineModels(report, transcript);
   // Ref-annotated transcript + a linker from each event to its source message.
   const { refed, link } = buildEvidenceRefs(data);
@@ -747,7 +756,8 @@ export default function CustodyReportPDF({ data }) {
 
   // Manually paginate the transcript appendix into fixed-size pages.
   // Auto-paginating one very long list overflows @react-pdf's layout math.
-  const TX_PER_PAGE = 52;
+  // Landscape pages are shorter, so they hold fewer message-log rows.
+  const TX_PER_PAGE = landscape ? 38 : 52;
   const txPages = [];
   for (let i = 0; i < refed.length; i += TX_PER_PAGE) {
     txPages.push(refed.slice(i, i + TX_PER_PAGE));
@@ -756,7 +766,11 @@ export default function CustodyReportPDF({ data }) {
 
   return (
     <Document title="Co-Parenting Communication Report">
-      <Page size="LETTER" style={styles.page}>
+      <Page
+        size="LETTER"
+        orientation={landscape ? "landscape" : "portrait"}
+        style={styles.page}
+      >
         <View style={styles.header}>
           <Text style={styles.title}>Co-Parenting Communication Report</Text>
           <Text style={styles.headerMeta}>
@@ -882,7 +896,7 @@ export default function CustodyReportPDF({ data }) {
         {timeline ? (
           <View>
             {timeline.years.map((ym) => (
-              <PdfTimeline key={ym.year} model={ym} />
+              <PdfTimeline key={ym.year} model={ym} plotW={timelinePlotW} />
             ))}
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
               One chart per year · month gridlines mark seasonal patterns ·
@@ -1113,7 +1127,12 @@ export default function CustodyReportPDF({ data }) {
 
       {/* Appendix — the message log, on explicit fixed-size pages. */}
       {txPages.map((rows, pi) => (
-        <Page key={`tx${pi}`} size="LETTER" style={styles.page}>
+        <Page
+          key={`tx${pi}`}
+          size="LETTER"
+          orientation={landscape ? "landscape" : "portrait"}
+          style={styles.page}
+        >
           {pi === 0 ? (
             <>
               <Text style={styles.title}>Appendix: Message Log</Text>

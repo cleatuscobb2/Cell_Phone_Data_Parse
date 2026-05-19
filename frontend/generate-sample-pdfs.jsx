@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import CustodyReportPDF from "./src/CustodyReportPDF.jsx";
+import CustodyReportPDFLandscape from "./src/CustodyReportPDFLandscape.jsx";
 import { buildCustodyWorkbook } from "./src/custodyWorkbook.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -340,6 +341,18 @@ for (const spec of SPECS) {
   } catch (e) {
     const why = e.code === "EBUSY" ? "file is open — close it and re-run" : e.message;
     console.log(`SKIPPED ${spec.file} — ${why}`);
+  }
+
+  // Landscape variant of the same report — for a readability comparison.
+  const landscapeFile = spec.file.replace(/\.pdf$/, "-landscape.pdf");
+  const landscapeOut = path.join(OUT_DIR, landscapeFile);
+  try {
+    await renderToFile(<CustodyReportPDFLandscape data={data} />, landscapeOut);
+    const kb = (fs.statSync(landscapeOut).size / 1024).toFixed(0);
+    console.log(`wrote ${landscapeFile}  (${kb} KB) — landscape layout`);
+  } catch (e) {
+    const why = e.code === "EBUSY" ? "file is open — close it and re-run" : e.message;
+    console.log(`SKIPPED ${landscapeFile} — ${why}`);
   }
 
   // Accompanying Excel workbook of the same evidence.
