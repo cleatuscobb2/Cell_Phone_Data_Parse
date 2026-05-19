@@ -31,6 +31,7 @@ import CustodyReport from "./CustodyReport.jsx";
 import LoadingAnimation from "./LoadingAnimation.jsx";
 import JurisdictionSelect from "./JurisdictionSelect.jsx";
 import CustodyIntake from "./CustodyIntake.jsx";
+import { getStateIntake } from "./stateIntake.js";
 import { getIdToken } from "./firebase.js";
 
 // Local dev defaults to the FastAPI proxy; production sets VITE_API_BASE to
@@ -262,6 +263,9 @@ export default function MessageSummarizer() {
   const meta = result?.meta;
   const isFocused = !!(meta && (meta.contact || meta.search_terms?.length));
   const isCustody = mode === "custody";
+  // The intake questionnaire is state-specific — shown only once a state
+  // with a registered intake (currently West Virginia) is selected.
+  const stateIntake = getStateIntake(caseState);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -384,25 +388,40 @@ export default function MessageSummarizer() {
               onStateChange={(s) => {
                 setCaseState(s);
                 setCaseCounty("");
+                // A new state has a different intake — clear stale answers.
+                setCaseProfile({});
               }}
               onCountyChange={setCaseCounty}
             />
           </div>
         )}
 
-        {/* WV custody filing intake — answers drive the required form packet
-            and tailor the analysis to the filer's specific case. */}
-        {isCustody && (
+        {/* Custody filing intake — state-specific. Shown only once a state
+            with a registered intake is selected; answers drive that state's
+            required form packet and tailor the analysis to the case. */}
+        {isCustody && stateIntake && (
           <div>
             <p className="text-xs font-medium text-slate-600">
-              WV custody filing intake
+              {stateIntake.label}
             </p>
             <p className="mb-1.5 text-xs text-slate-400">
-              Answer these to determine the exact West Virginia form packet
-              your case requires and to tailor the analysis to it.
+              {stateIntake.blurb}
             </p>
-            <CustodyIntake answers={caseProfile} onChange={setCaseProfile} />
+            <CustodyIntake
+              intake={stateIntake}
+              answers={caseProfile}
+              onChange={setCaseProfile}
+            />
           </div>
+        )}
+
+        {/* No intake for the selected state — explain why it's not shown. */}
+        {isCustody && !stateIntake && (
+          <p className="text-xs text-slate-400">
+            {caseState
+              ? `A custody-filing intake for ${caseState} isn't available yet.`
+              : "Select a state above to answer its custody-filing intake."}
+          </p>
         )}
 
         {/* Scope: contact (+ search terms in summary mode) */}
