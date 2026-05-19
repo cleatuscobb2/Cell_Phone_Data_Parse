@@ -3,7 +3,10 @@
  * data. Consumed by both the interactive <Timeline> component and the PDF
  * renderer, so the two stay in sync.
  *
- * Every event is placed by `frac` (0..1) along the report's date range.
+ * The timeline is split into one chart per calendar year, each spanning a
+ * full Jan–Dec so a given month always sits at the same horizontal position.
+ * That makes seasonal patterns (e.g. every August) easy to spot year over
+ * year. Every event is placed by `frac` (0..1) along its year.
  */
 
 export const TIMELINE_LANES = [
@@ -21,7 +24,10 @@ const PARENT_MARKER = {
   unclear: "#94a3b8",
 };
 
-const DAY = 86400000;
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 function parseDate(s) {
   if (typeof s !== "string") return null;
@@ -31,9 +37,12 @@ function parseDate(s) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function buildTimelineModel(report, meta) {
-  if (!report) return null;
-
+/**
+ * Pull every dated event out of the report, keeping raw Date objects so the
+ * yearly builder can re-bucket them. Point events carry a color + hover
+ * title; communication gaps are spans with start/end dates.
+ */
+function extractEvents(report) {
   const point = (e, color, title) => {
     const date = parseDate(e.date);
     return date ? { date, color, title } : null;
@@ -83,70 +92,96 @@ export function buildTimelineModel(report, meta) {
     })
     .filter(Boolean);
 
-  // Domain — widest span across every dated item plus the report's range.
-  const all = [
-    ...childcare.map((e) => e.date),
-    ...missed.map((e) => e.date),
-    ...responsibility.map((e) => e.date),
-    ...thirdparty.map((e) => e.date),
-    ...gaps.flatMap((g) => [g.start, g.end]),
-  ];
-  for (const s of meta?.date_range || []) {
-    const d = parseDate(s);
-    if (d) all.push(d);
-  }
-  if (all.length === 0) return null;
+  return { childcare, missed, responsibility, thirdparty, gaps };
+}
 
-  let start = new Date(Math.min(...all.map((d) => d.getTime())));
-  let end = new Date(Math.max(...all.map((d) => d.getTime())));
-  if (start.getTime() === end.getTime()) {
-    start = new Date(start.getTime() - 15 * DAY);
-    end = new Date(end.getTime() + 15 * DAY);
-  }
-  const span = end.getTime() - start.getTime();
-  const frac = (d) => (d.getTime() - start.getTime()) / span;
+/**
+ * Build one timeline model per calendar year that contains events.
+ *
+ * Returns `{ years: [...], laneTotals: [...] }`, where each year model has
+ * the same shape the renderers expect (`lanes`, `ticks`) plus a `year`.
+ * `laneTotals` carries the overall per-lane counts for the filter chips.
+ */
+export function buildYearlyTimelineModels(report) {
+  if (!report) return null;
+  const events = extractEvents(report);
 
-  const byKey = { childcare, missed, responsibility, thirdparty };
-  const lanes = TIMELINE_LANES.map((lane) => {
-    if (lane.key === "gap") {
-      return {
-        ...lane,
-        points: [],
-        spans: gaps.map((g) => ({
-          startFrac: frac(g.start),
-          endFrac: frac(g.end),
-          title: g.title,
-        })),
-        count: gaps.length,
-      };
+  // Every year touched by any event (gaps count both endpoints' years).
+  const pointDates = [
+    ...events.childcare,
+    ...events.missed,
+    ...events.responsibility,
+    ...events.thirdparty,
+  ].map((e) => e.date);
+  const yearsTouched = new Set(pointDates.map((d) => d.getFullYear()));
+  for (const g of events.gaps) {
+    for (let y = g.start.getFullYear(); y <= g.end.getFullYear(); y++) {
+      yearsTouched.add(y);
     }
-    const points = (byKey[lane.key] || []).map((e) => ({
-      frac: frac(e.date),
-      color: e.color,
-      title: e.title,
+  }
+  const years = [...yearsTouched].sort((a, b) => a - b);
+  if (years.length === 0) return null;
+
+  const byKey = {
+    childcare: events.childcare,
+    missed: events.missed,
+    responsibility: events.responsibility,
+    thirdparty: events.thirdparty,
+  };
+
+  const models = years.map((year) => {
+    const start = new Date(year, 0, 1);
+    const end = new Date(year, 11, 31, 23, 59, 59);
+    const span = end.getTime() - start.getTime();
+    const frac = (d) =>
+      Math.max(0, Math.min(1, (d.getTime() - start.getTime()) / span));
+    const inYear = (d) => d.getFullYear() === year;
+
+    const lanes = TIMELINE_LANES.map((lane) => {
+      if (lane.key === "gap") {
+        // A gap straddling a year boundary is clipped into each year it covers.
+        const spans = events.gaps
+          .filter(
+            (g) => g.start.getFullYear() <= year && g.end.getFullYear() >= year,
+          )
+          .map((g) => ({
+            startFrac: frac(g.start < start ? start : g.start),
+            endFrac: frac(g.end > end ? end : g.end),
+            title: g.title,
+          }));
+        return { ...lane, points: [], spans, count: spans.length };
+      }
+      const points = (byKey[lane.key] || [])
+        .filter((e) => inYear(e.date))
+        .map((e) => ({ frac: frac(e.date), color: e.color, title: e.title }));
+      return { ...lane, points, spans: [], count: points.length };
+    });
+
+    // Twelve month gridlines — one per month, plus a final Dec-31 boundary.
+    const ticks = MONTHS.map((label, m) => ({
+      frac: frac(new Date(year, m, 1)),
+      label,
     }));
-    return { ...lane, points, spans: [], count: points.length };
+
+    return {
+      year,
+      lanes,
+      ticks,
+      startLabel: `${year}-01-01`,
+      endLabel: `${year}-12-31`,
+    };
   });
 
-  // Month gridline ticks.
-  const ticks = [];
-  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-  while (cursor <= end) {
-    if (cursor >= start) {
-      ticks.push({
-        frac: frac(cursor),
-        label: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
-      });
-    }
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
+  // Overall counts for the filter chips (gaps counted once each).
+  const laneTotals = TIMELINE_LANES.map((lane) => ({
+    key: lane.key,
+    label: lane.label,
+    color: lane.color,
+    count:
+      lane.key === "gap"
+        ? events.gaps.length
+        : (byKey[lane.key] || []).length,
+  }));
 
-  return {
-    start,
-    end,
-    startLabel: start.toISOString().slice(0, 10),
-    endLabel: end.toISOString().slice(0, 10),
-    lanes,
-    ticks,
-  };
+  return { years: models, laneTotals };
 }

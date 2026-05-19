@@ -34,6 +34,7 @@ from parser import (
     filter_by_date,
     list_conversations,
     messages_to_records,
+    parse_emails,
     parse_export,
     search_messages,
     to_condensed_string,
@@ -105,6 +106,7 @@ class ChildcareEvent(BaseModel):
     description: str
     quote: str
     sender: str
+    channel: Literal["text", "email", "unclear"]  # source of the cited message
 
 
 class MissedVisit(BaseModel):
@@ -116,6 +118,7 @@ class MissedVisit(BaseModel):
     description: str
     quote: str
     sender: str
+    channel: Literal["text", "email", "unclear"]
 
 
 class CommunicationGap(BaseModel):
@@ -127,21 +130,43 @@ class CommunicationGap(BaseModel):
 
 class ResponsibilityEvent(BaseModel):
     date: str
+    # Court-recognized parenting-responsibility categories.
     category: Literal[
-        "medical", "school", "drop_off", "pick_up",
-        "emergency_contact", "activity", "other",
+        "education",
+        "medical_dental_eye",
+        "religious",
+        "child_care",
+        "childrens_employment",
+        "motor_vehicle",
+        "activities",
+        "other",
     ]
+    subcategory: str  # specific item, e.g. "Tuition", "Sports — game", "Camp"
     responsible_party: Literal["mother", "father", "shared", "unclear"]
     description: str
     quote: str
     sender: str
+    channel: Literal["text", "email", "unclear"]
 
 
 class ThirdPartyStatement(BaseModel):
     date: str
-    source: str
+    source: str  # who made the statement
     description: str
     quote: str
+    channel: Literal["text", "email", "unclear"]  # text message or email
+
+
+class Suggestion(BaseModel):
+    category: Literal[
+        "attachment",
+        "key_statement",
+        "evidence_to_gather",
+        "follow_up",
+        "other",
+    ]
+    suggestion: str
+    related_date: str  # the date it relates to, or "" if none
 
 
 class CustodyReport(BaseModel):
@@ -152,6 +177,7 @@ class CustodyReport(BaseModel):
     communication_gaps: list[CommunicationGap]
     responsibility_events: list[ResponsibilityEvent]
     third_party_statements: list[ThirdPartyStatement]
+    suggestions: list[Suggestion]
     sentiment_overview: str
     limitations: list[str]
 
@@ -219,11 +245,19 @@ you do not decide what is admissible.
 The user message states which parent is the user ("Me" in the transcript), \
 names the other parent, and may name the children.
 
+The transcript may combine text messages and emails. Email lines are tagged \
+"(email)" and may list "[attachments: ...]". Treat both channels as one \
+combined record: correlate them by timestamp and build a single chronological \
+account of what happened.
+
 CRITICAL RULES:
 - Only include an event if it is explicitly supported by message text. Never \
 infer, assume, or invent an event.
 - For every event, include a `quote` copied verbatim from a message that \
 supports it, and the `date` of that message (YYYY-MM-DD).
+- For every event, set `channel` to "email" if the message line you quote is \
+tagged "(email)" in the transcript, or "text" if it is not tagged. Use \
+"unclear" only when you genuinely cannot tell.
 - If you cannot tell which parent an event involves, use "unclear". Do not \
 guess.
 - Prefer omitting a borderline event over including a weakly-supported one.
@@ -252,18 +286,47 @@ the other parent regarding the children, which may indicate a lack of \
 outreach. For each: start_date, end_date, approximate number of days, and a \
 description. Only report gaps clearly visible in the message timestamps.
 
-- responsibility_events: Instances showing who handled a child-rearing \
-responsibility — scheduling or attending medical/dental appointments, \
-parent-teacher conferences, school drop-off or pick-up, being named an \
-emergency contact, or arranging activities. For each: date, category \
-(medical, school, drop_off, pick_up, emergency_contact, activity, other), \
-responsible_party ("mother", "father", "shared", "unclear"), description, \
-verbatim quote, sender.
+- responsibility_events: Instances showing a parent handling a child-rearing \
+responsibility. Classify each into ONE court-recognized category plus a \
+specific subcategory. Categories:
+  - education: teacher/parent conferences, tuition, books and clothes, \
+transportation to and from school.
+  - medical_dental_eye: medical, dental, or eye care — including who paid, \
+transportation to appointments, scheduling and paperwork, and identifying a \
+quality doctor and initiating contact.
+  - religious: religious upbringing, observance, and instruction.
+  - child_care: arranging or providing child care or babysitting.
+  - childrens_employment: the children's jobs or employment.
+  - motor_vehicle: the children's motor vehicle use, driving, and licensing.
+  - activities: school and after-school activities — sports practices and \
+games, camp, competition dance, awards and ceremonies, and Boy or Girl Scouts.
+  - other: any child-rearing responsibility not covered above.
+For each event: date, category (one of the keys above), subcategory (a short \
+specific label, e.g. "Teacher/parent conference", "Tuition", "Books & \
+clothes", "Who paid", "Scheduling & paperwork", "Sports — game", "Camp", \
+"Competition dance", "Awards & ceremonies", "Scouts"), responsible_party \
+("mother", "father", "shared", or "unclear"), description, verbatim quote, \
+and sender.
 
 - third_party_statements: Messages from people OTHER than the two parents \
 that describe or corroborate either parent's involvement with the children \
 (for example a relative, teacher, or friend commenting on caregiving). For \
 each: date, source (who said it), description, verbatim quote.
+
+- suggestions: Practical, actionable items to help the user and their \
+attorney build a strong case. Use these categories:
+  - attachment: any text or email that references a document, photo, file, \
+or "[attachments: ...]" the user should locate, preserve, and provide to \
+counsel — say what it is and when.
+  - key_statement: especially strong or revealing statements already in the \
+record that are worth flagging for counsel.
+  - evidence_to_gather: records the messages reference but that are NOT \
+themselves in the transcript (e.g. school records, report cards, medical \
+bills, receipts) that the user should obtain.
+  - follow_up: concrete next steps that would strengthen the case.
+  - other: anything else useful.
+For each: category, the suggestion text, and related_date (the relevant \
+date in YYYY-MM-DD, or an empty string).
 
 - breakdown_basis: A short explanation of how the childcare_events were \
 identified and what makes the resulting count reliable or uncertain.
@@ -331,23 +394,67 @@ def _parse_date(value: str | None, field: str) -> date | None:
         raise HTTPException(422, f"{field} must be YYYY-MM-DD, got: {value!r}")
 
 
+def _parse_text_upload(raw: bytes, filename: str) -> list:
+    """Parse a text-message export into Message objects (channel='text')."""
+    try:
+        return parse_export(_load_export(raw, filename))
+    except ValueError as e:
+        raise HTTPException(422, f"Text-message file: {e}")
+
+
+def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> list:
+    """Parse an email upload into Message objects (channel='email').
+
+    .eml/.mbox go through the email parser; a JSON/CSV email export falls
+    back to the structured parser and is tagged as email.
+    """
+    name = (filename or "").lower()
+    if name.endswith((".json", ".csv")):
+        try:
+            messages = parse_export(_load_export(raw, filename))
+        except ValueError as e:
+            raise HTTPException(422, f"Email file: {e}")
+        for m in messages:
+            m.channel = "email"
+        return messages
+    return parse_emails(raw, filename, user_email)
+
+
+async def _collect_messages(
+    file: UploadFile | None,
+    email_file: UploadFile | None,
+    user_email: str | None,
+) -> list:
+    """Read both uploads, parse each channel, and merge chronologically."""
+    messages: list = []
+    if file is not None:
+        messages += _parse_text_upload(await file.read(), file.filename or "")
+    if email_file is not None:
+        messages += _parse_email_upload(
+            await email_file.read(), email_file.filename or "", user_email
+        )
+    if not messages:
+        raise HTTPException(
+            422, "Upload a text-message export, an email file (.eml/.mbox), or both."
+        )
+    messages.sort(key=lambda m: m.timestamp)
+    return messages
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "model": MODEL}
 
 
 @app.post("/contacts")
-async def contacts(file: UploadFile = File(...)) -> dict:
-    """Parse-only (no Claude call): list the conversations in an upload so
-    the UI can offer a contact selector."""
-    raw = await file.read()
-    data = _load_export(raw, file.filename or "")
-    try:
-        messages = parse_export(data)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    if not messages:
-        raise HTTPException(422, "No messages found in the file.")
+async def contacts(
+    file: UploadFile | None = File(None),
+    email_file: UploadFile | None = File(None),
+    user_email: str | None = Form(None),
+) -> dict:
+    """Parse-only (no Claude call): list the conversations across the
+    uploaded text and/or email files so the UI can offer a contact selector."""
+    messages = await _collect_messages(file, email_file, user_email)
     return {"contacts": list_conversations(messages)}
 
 
@@ -369,19 +476,17 @@ CHUNK_CONCURRENCY = 4        # windows analyzed in parallel
 
 @app.post("/summarize")
 async def summarize(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    email_file: UploadFile | None = File(None),
+    user_email: str | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
     contact: str | None = Form(None),
     search_terms: str | None = Form(None),
 ) -> dict:
-    # 1. Read and parse the upload — in memory only, nothing persisted.
-    raw = await file.read()
-    data = _load_export(raw, file.filename or "")
-    try:
-        messages = parse_export(data)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+    # 1. Read and parse the upload(s) — in memory only, nothing persisted.
+    #    Text and email are merged into one chronological stream.
+    messages = await _collect_messages(file, email_file, user_email)
 
     messages = filter_by_date(
         messages, _parse_date(start_date, "start_date"), _parse_date(end_date, "end_date")
@@ -571,6 +676,7 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
     gaps = sort_by([g for p in partials for g in p.communication_gaps], "start_date")
     responsibility = sort_by([r for p in partials for r in p.responsibility_events], "date")
     third_party = sort_by([t for p in partials for t in p.third_party_statements], "date")
+    suggestions = [s for p in partials for s in p.suggestions]
 
     cb = _custody_breakdown(childcare)
     window_summaries = "\n\n".join(
@@ -625,6 +731,7 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
         communication_gaps=gaps,
         responsibility_events=responsibility,
         third_party_statements=third_party,
+        suggestions=suggestions,
         sentiment_overview=narrative.sentiment_overview,
         limitations=narrative.limitations,
     )
@@ -632,7 +739,9 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
 
 @app.post("/custody-report")
 async def custody_report(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    email_file: UploadFile | None = File(None),
+    user_email: str | None = Form(None),
     other_parent: str = Form(...),
     user_role: str = Form("mother"),
     children: str | None = Form(None),
@@ -646,13 +755,9 @@ async def custody_report(
     if not other_parent.strip():
         raise HTTPException(422, "The other parent's name is required.")
 
-    # 1. Read and parse the upload — in memory only, nothing persisted.
-    raw = await file.read()
-    data = _load_export(raw, file.filename or "")
-    try:
-        messages = parse_export(data)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+    # 1. Read and parse the upload(s) — in memory only, nothing persisted.
+    #    Text and email are merged into one chronological stream.
+    messages = await _collect_messages(file, email_file, user_email)
 
     messages = filter_by_date(
         messages, _parse_date(start_date, "start_date"), _parse_date(end_date, "end_date")

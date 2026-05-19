@@ -28,6 +28,7 @@ import {
   YAxis,
 } from "recharts";
 import CustodyReport from "./CustodyReport.jsx";
+import LoadingAnimation from "./LoadingAnimation.jsx";
 
 const API_BASE = "http://localhost:8000";
 
@@ -46,6 +47,62 @@ function Panel({ title, subtitle, children }) {
       {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+const UPLOAD_SVG =
+  "M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 " +
+  "5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z";
+
+/** One file drop target. Manages its own drag state and file input. */
+function DropZone({ label, hint, accept, file, onPick }) {
+  const inputRef = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        onPick(e.dataTransfer.files?.[0]);
+      }}
+      onClick={() => inputRef.current?.click()}
+      className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-7 text-center transition ${
+        dragOver
+          ? "border-indigo-400 bg-indigo-50"
+          : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
+      }`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => onPick(e.target.files?.[0])}
+      />
+      <svg
+        className="h-8 w-8 text-slate-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d={UPLOAD_SVG} />
+      </svg>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-0.5 text-sm font-medium text-slate-700">
+        {file ? file.name : hint}
+      </p>
+      <p className="text-xs text-slate-400">
+        {file ? "Click to replace" : "drag & drop or click"}
+      </p>
+    </div>
   );
 }
 
@@ -69,6 +126,8 @@ function highlight(text, terms) {
 export default function MessageSummarizer() {
   const [mode, setMode] = useState("summary"); // "summary" | "custody"
   const [file, setFile] = useState(null);
+  const [emailFile, setEmailFile] = useState(null);
+  const [userEmail, setUserEmail] = useState("");
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [selectedContact, setSelectedContact] = useState("");
@@ -78,43 +137,50 @@ export default function MessageSummarizer() {
   const [childrenNames, setChildrenNames] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
-  const inputRef = useRef(null);
 
-  // Picking a file resets scope and loads the contact roster for the selector.
-  const handleFile = useCallback(async (f) => {
-    if (!f) return;
-    setFile(f);
-    setResult(null);
-    setError("");
-    setContacts([]);
-    setSelectedContact("");
+  // Load the contact roster from whichever file(s) are currently chosen.
+  const loadContacts = useCallback(async (textF, emailF, email) => {
+    if (!textF && !emailF) {
+      setContacts([]);
+      return;
+    }
     setContactsLoading(true);
     try {
       const form = new FormData();
-      form.append("file", f);
+      if (textF) form.append("file", textF);
+      if (emailF) form.append("email_file", emailF);
+      if (email?.trim()) form.append("user_email", email.trim());
       const res = await fetch(`${API_BASE}/contacts`, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Failed to read file (${res.status})`);
       setContacts(data.contacts);
     } catch (err) {
-      setError(err.message || "Could not read contacts from the file.");
+      setError(err.message || "Could not read contacts from the file(s).");
     } finally {
       setContactsLoading(false);
     }
   }, []);
 
-  const onDrop = useCallback(
-    (e) => {
-      e.preventDefault();
-      setDragOver(false);
-      handleFile(e.dataTransfer.files?.[0]);
-    },
-    [handleFile],
-  );
+  // Picking either file resets scope and reloads the contact roster.
+  function pickText(f) {
+    if (!f) return;
+    setFile(f);
+    setResult(null);
+    setError("");
+    setSelectedContact("");
+    loadContacts(f, emailFile, userEmail);
+  }
+  function pickEmail(f) {
+    if (!f) return;
+    setEmailFile(f);
+    setResult(null);
+    setError("");
+    setSelectedContact("");
+    loadContacts(file, f, userEmail);
+  }
 
   function switchMode(m) {
     setMode(m);
@@ -123,8 +189,8 @@ export default function MessageSummarizer() {
   }
 
   async function handleSubmit() {
-    if (!file) {
-      setError("Choose a JSON or CSV history export first.");
+    if (!file && !emailFile) {
+      setError("Add a text-message export, an email file, or both.");
       return;
     }
     if (mode === "custody" && !otherParent.trim()) {
@@ -136,7 +202,9 @@ export default function MessageSummarizer() {
     setResult(null);
 
     const form = new FormData();
-    form.append("file", file);
+    if (file) form.append("file", file);
+    if (emailFile) form.append("email_file", emailFile);
+    if (userEmail.trim()) form.append("user_email", userEmail.trim());
     if (startDate) form.append("start_date", startDate);
     if (endDate) form.append("end_date", endDate);
     if (selectedContact) form.append("contact", selectedContact);
@@ -201,47 +269,33 @@ export default function MessageSummarizer() {
           ))}
         </div>
 
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={onDrop}
-          onClick={() => inputRef.current?.click()}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center transition ${
-            dragOver
-              ? "border-indigo-400 bg-indigo-50"
-              : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
-          }`}
-        >
-          <input
-            ref={inputRef}
-            type="file"
+        {/* Side-by-side import: text messages and emails. Either or both. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <DropZone
+            label="Text messages"
+            hint="Drop your text export"
             accept=".json,.csv,application/json,text/csv"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])}
+            file={file}
+            onPick={pickText}
           />
-          <svg
-            className="h-10 w-10 text-slate-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"
-            />
-          </svg>
-          <p className="mt-2 text-sm font-medium text-slate-700">
-            {file ? file.name : "Drop your text history export here"}
-          </p>
-          <p className="text-xs text-slate-400">
-            {file ? "Click to choose a different file" : "JSON or CSV — or click to browse"}
-          </p>
+          <DropZone
+            label="Emails"
+            hint="Drop an .eml or .mbox file"
+            accept=".eml,.mbox,.json,.csv,message/rfc822"
+            file={emailFile}
+            onPick={pickEmail}
+          />
         </div>
+        <label className="flex flex-col text-xs font-medium text-slate-600">
+          Your email address (optional — so we can tell which emails you sent)
+          <input
+            type="email"
+            value={userEmail}
+            onChange={(e) => setUserEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+          />
+        </label>
 
         {isCustody && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
@@ -297,7 +351,7 @@ export default function MessageSummarizer() {
             <select
               value={selectedContact}
               onChange={(e) => setSelectedContact(e.target.value)}
-              disabled={!file || contactsLoading}
+              disabled={(!file && !emailFile) || contactsLoading}
               className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="">
@@ -358,17 +412,13 @@ export default function MessageSummarizer() {
           </button>
         </div>
 
-        {loading && isCustody && (
-          <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            Analyzing the history. Large multi-year histories are processed in
-            time windows and can take a few minutes.
-          </p>
-        )}
-
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
       </div>
+
+      {/* --- Processing animation --- */}
+      {loading && <LoadingAnimation mode={mode} />}
 
       {/* --- Custody report --- */}
       {result?.report && <CustodyReport data={result} />}

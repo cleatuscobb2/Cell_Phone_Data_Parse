@@ -10,18 +10,23 @@
 
 import {
   Document,
+  Line,
   Page,
+  Polygon,
   StyleSheet,
+  Svg,
   Text,
   View,
 } from "@react-pdf/renderer";
-import { buildTimelineModel } from "./timeline.js";
+import { buildYearlyTimelineModels } from "./timeline.js";
 import {
   carePatternData,
   custodySplitData,
-  missedByTypeData,
-  missedOverTimeData,
+  missedByMonthAndTypeData,
+  MISSED_TYPES,
   responsibilityData,
+  responsibilityRadarData,
+  RESPONSIBILITY_LABELS,
 } from "./chartData.js";
 
 const styles = StyleSheet.create({
@@ -34,7 +39,21 @@ const styles = StyleSheet.create({
     color: "#1e293b",
     lineHeight: 1.4,
   },
-  title: { fontSize: 18, fontFamily: "Helvetica-Bold" },
+  header: {
+    marginBottom: 8,
+    paddingBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: "#334155",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 20,
+    fontFamily: "Helvetica-Bold",
+    color: "#0f172a",
+    textAlign: "center",
+    letterSpacing: 0.3,
+  },
+  headerMeta: { fontSize: 8.5, color: "#64748b", marginTop: 3, textAlign: "center" },
   subtitle: { fontSize: 9, color: "#64748b", marginTop: 2 },
   h2: {
     fontSize: 12,
@@ -82,6 +101,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   evidenceDate: { fontFamily: "Helvetica-Bold", color: "#475569", fontSize: 8 },
+  source: { fontFamily: "Helvetica", color: "#7c3aed" },
   badge: { fontSize: 7, color: "#be123c", fontFamily: "Helvetica-Bold" },
   quote: {
     fontStyle: "italic",
@@ -127,15 +147,26 @@ const CARE_SERIES = [
   { key: "mother", color: PDF_COLORS.mother, label: "With mother" },
   { key: "father", color: PDF_COLORS.father, label: "With father" },
 ];
-const MISSED_SERIES = [
-  { key: "count", color: PDF_COLORS.missed, label: "Missed / cancelled" },
-];
+// One stacked series per missed/cancelled kind — shared color scheme.
+const MISSED_TYPE_SERIES = MISSED_TYPES.map((t) => ({
+  key: t.key,
+  color: t.color,
+  label: t.label,
+}));
 const RESP_SERIES = [
   { key: "mother", color: PDF_COLORS.mother, label: "With mother" },
   { key: "father", color: PDF_COLORS.father, label: "With father" },
   { key: "shared", color: PDF_COLORS.shared, label: "Shared" },
   { key: "unclear", color: PDF_COLORS.unclear, label: "Unclear" },
 ];
+
+const SUGGESTION_LABEL = {
+  attachment: "Attachment",
+  key_statement: "Key statement",
+  evidence_to_gather: "Gather evidence",
+  follow_up: "Follow-up",
+  other: "Suggestion",
+};
 
 /** Horizontal proportion bar — the overall custody split. */
 function PdfProportionBar({ data }) {
@@ -276,42 +307,236 @@ function PdfBarChart({ data, labelKey, series, height = 78 }) {
   );
 }
 
+/** Horizontal bar chart — best when categories have long names. Single
+    series, or stacked when given several. Each bar sits in a track so its
+    share of the maximum reads at a glance. */
+function PdfHBar({ data, labelKey, series, barH = 12 }) {
+  if (!data || data.length === 0) {
+    return <Text style={styles.empty}>Not enough data to chart.</Text>;
+  }
+  const max = Math.max(
+    1,
+    ...data.map((d) => series.reduce((s, sr) => s + (d[sr.key] || 0), 0)),
+  );
+  return (
+    <View wrap={false} style={{ marginTop: 2, marginBottom: 4 }}>
+      {data.map((d, i) => {
+        const total = series.reduce((s, sr) => s + (d[sr.key] || 0), 0);
+        return (
+          <View
+            key={i}
+            style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}
+          >
+            <Text
+              style={{ width: 124, fontSize: 7, color: "#475569", paddingRight: 5 }}
+            >
+              {d[labelKey]}
+            </Text>
+            <View
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                height: barH,
+                borderRadius: 2,
+                overflow: "hidden",
+                backgroundColor: "#f1f5f9",
+              }}
+            >
+              <View style={{ flexGrow: total, flexBasis: 0, flexDirection: "row" }}>
+                {series.map((sr) => {
+                  const v = d[sr.key] || 0;
+                  return v > 0 ? (
+                    <View
+                      key={sr.key}
+                      style={{ flexGrow: v, flexBasis: 0, backgroundColor: sr.color }}
+                    />
+                  ) : null;
+                })}
+              </View>
+              <View style={{ flexGrow: Math.max(0.0001, max - total), flexBasis: 0 }} />
+            </View>
+            <View
+              style={{
+                width: d.motherPct != null ? 66 : 18,
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                alignItems: "baseline",
+              }}
+            >
+              <Text
+                style={{ fontSize: 7, color: "#475569", fontFamily: "Helvetica-Bold" }}
+              >
+                {total}
+              </Text>
+              {d.motherPct != null ? (
+                <Text
+                  style={{ fontSize: 6.5, fontFamily: "Helvetica-Bold", marginLeft: 4 }}
+                >
+                  <Text style={{ color: PDF_COLORS.mother }}>{d.motherPct}%</Text>
+                  <Text style={{ color: "#cbd5e1" }}> · </Text>
+                  <Text style={{ color: PDF_COLORS.father }}>{d.fatherPct}%</Text>
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+      {series.length > 1 ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 3 }}>
+          {series.map((sr) => (
+            <View
+              key={sr.key}
+              style={{ flexDirection: "row", alignItems: "center", marginRight: 10 }}
+            >
+              <View style={{ width: 7, height: 7, backgroundColor: sr.color, marginRight: 3 }} />
+              <Text style={{ fontSize: 7 }}>{sr.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Radar (spider) chart — overlays two series across N category axes. */
+function PdfRadar({ data, series }) {
+  const N = data.length;
+  if (N < 3) {
+    return <Text style={styles.empty}>Not enough categories to chart.</Text>;
+  }
+  const SIZE = 230;
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+  const R = 72;
+  const max = Math.max(
+    1,
+    ...data.flatMap((d) => series.map((s) => d[s.key] || 0)),
+  );
+  const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / N;
+  const at = (i, dist) => [
+    cx + dist * Math.cos(angle(i)),
+    cy + dist * Math.sin(angle(i)),
+  ];
+  const polyPoints = (key) =>
+    data
+      .map((d, i) => {
+        const [x, y] = at(i, ((d[key] || 0) / max) * R);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  const ringPoints = (frac) =>
+    data
+      .map((_, i) => {
+        const [x, y] = at(i, frac * R);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+
+  return (
+    <View wrap={false} style={{ marginTop: 4, marginBottom: 4, alignItems: "center" }}>
+      <View style={{ width: SIZE, height: SIZE, position: "relative" }}>
+        <Svg width={SIZE} height={SIZE}>
+          {[0.25, 0.5, 0.75, 1].map((f, i) => (
+            <Polygon key={i} points={ringPoints(f)} fill="none" stroke="#e2e8f0" strokeWidth={0.5} />
+          ))}
+          {data.map((_, i) => {
+            const [x, y] = at(i, R);
+            return (
+              <Line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#e2e8f0" strokeWidth={0.5} />
+            );
+          })}
+          {series.map((s) => (
+            <Polygon
+              key={s.key}
+              points={polyPoints(s.key)}
+              fill={s.color}
+              fillOpacity={0.25}
+              stroke={s.color}
+              strokeWidth={1.4}
+            />
+          ))}
+        </Svg>
+        {data.map((d, i) => {
+          const [lx, ly] = at(i, R + 15);
+          return (
+            <View
+              key={i}
+              style={{
+                position: "absolute",
+                left: lx - 30,
+                top: ly - 7,
+                width: 60,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontSize: 6, color: "#475569" }}>{d.category}</Text>
+              <Text style={{ fontSize: 5.5, fontFamily: "Helvetica-Bold" }}>
+                <Text style={{ color: PDF_COLORS.mother }}>
+                  {d.motherPct ?? 0}%
+                </Text>
+                <Text style={{ color: "#cbd5e1" }}> · </Text>
+                <Text style={{ color: PDF_COLORS.father }}>
+                  {d.fatherPct ?? 0}%
+                </Text>
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: "row", marginTop: 2 }}>
+        {series.map((s) => (
+          <View
+            key={s.key}
+            style={{ flexDirection: "row", alignItems: "center", marginRight: 14 }}
+          >
+            <View style={{ width: 8, height: 8, backgroundColor: s.color, marginRight: 3 }} />
+            <Text style={{ fontSize: 8 }}>{s.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const PLOT_W = 420;
 const LABEL_W = 95;
 const LANE_H = 34;
 
+/** One year's swim-lane timeline — a full Jan–Dec span with month gridlines. */
 function PdfTimeline({ model }) {
-  if (!model) {
-    return <Text style={styles.empty}>Not enough dated events to build a timeline.</Text>;
-  }
-  const labelEvery = model.ticks.length > 24 ? 6 : model.ticks.length > 12 ? 3 : 1;
   // Shrink markers when a lane is dense so overlap reads as a pattern.
   const totalPoints = model.lanes.reduce((s, l) => s + l.points.length, 0);
   const mk = totalPoints > 120 ? 4 : totalPoints > 60 ? 5 : 7;
+  const yearTotal = model.lanes.reduce((s, l) => s + l.count, 0);
 
   return (
-    <View wrap={false} style={{ marginTop: 4 }}>
+    <View wrap={false} style={{ marginTop: 8 }}>
+      {/* Year heading */}
+      <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#334155" }}>
+        {model.year}{" "}
+        <Text style={{ fontSize: 7, fontFamily: "Helvetica", color: "#94a3b8" }}>
+          · {yearTotal} {yearTotal === 1 ? "event" : "events"}
+        </Text>
+      </Text>
       {/* Month axis */}
-      <View style={{ flexDirection: "row" }}>
+      <View style={{ flexDirection: "row", marginTop: 2 }}>
         <View style={{ width: LABEL_W }} />
-        <View style={{ width: PLOT_W, height: 12 }}>
-          {model.ticks.map((t, i) =>
-            i % labelEvery === 0 ? (
-              <Text
-                key={i}
-                style={{
-                  position: "absolute",
-                  left: t.frac * PLOT_W - 14,
-                  width: 28,
-                  textAlign: "center",
-                  fontSize: 6,
-                  color: "#94a3b8",
-                }}
-              >
-                {t.label}
-              </Text>
-            ) : null,
-          )}
+        <View style={{ width: PLOT_W, height: 10 }}>
+          {model.ticks.map((t, i) => (
+            <Text
+              key={i}
+              style={{
+                position: "absolute",
+                left: t.frac * PLOT_W + 1.5,
+                width: 28,
+                textAlign: "left",
+                fontSize: 6,
+                color: "#94a3b8",
+              }}
+            >
+              {t.label}
+            </Text>
+          ))}
         </View>
       </View>
 
@@ -383,19 +608,21 @@ function PdfTimeline({ model }) {
           </View>
         </View>
       ))}
-      <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 3 }}>
-        {model.startLabel} to {model.endLabel} · squares mark missed or cancelled
-        visits · amber bars are communication gaps
-      </Text>
     </View>
   );
 }
 
-function EvidenceItem({ date, badge, description, quote, sender }) {
+const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Source unclear" };
+
+function EvidenceItem({ date, channel, badge, description, quote, sender }) {
+  const src = CHANNEL_LABEL[channel];
   return (
     <View style={styles.evidence} wrap={false}>
       <View style={styles.evidenceHead}>
-        <Text style={styles.evidenceDate}>{date || "date unclear"}</Text>
+        <Text style={styles.evidenceDate}>
+          {date || "date unclear"}
+          {src ? <Text style={styles.source}> · {src}</Text> : null}
+        </Text>
         {badge ? <Text style={styles.badge}>{badge}</Text> : null}
       </View>
       <Text>{description}</Text>
@@ -424,12 +651,19 @@ function Section({ title, items, empty, render, chart }) {
 
 export default function CustodyReportPDF({ data }) {
   const { meta, custody_breakdown: cb, report, transcript = [] } = data;
-  const model = buildTimelineModel(report, meta);
+  const timeline = buildYearlyTimelineModels(report);
   const custodySplit = custodySplitData(cb);
   const carePattern = carePatternData(report);
-  const missedTime = missedOverTimeData(report);
-  const missedTypes = missedByTypeData(report);
+  const missedMonthly = missedByMonthAndTypeData(report);
+  const missedSeries = MISSED_TYPE_SERIES.filter((s) =>
+    missedMonthly.some((r) => r[s.key] > 0),
+  );
   const responsibilities = responsibilityData(report);
+  const radarData = responsibilityRadarData(report);
+  const RADAR_SERIES = [
+    { key: "mother", color: PDF_COLORS.mother, label: `With ${meta.user_role}` },
+    { key: "father", color: PDF_COLORS.father, label: "With father" },
+  ];
   const generated = new Date().toISOString().slice(0, 10);
   const children = meta.children?.length ? meta.children.join(", ") : "not specified";
   const period =
@@ -449,14 +683,17 @@ export default function CustodyReportPDF({ data }) {
   return (
     <Document title="Co-Parenting Communication Report">
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.title}>Co-Parenting Communication Report</Text>
-        <Text style={styles.subtitle}>
-          Prepared by the children&rsquo;s {meta.user_role} · Other parent: {meta.other_parent}
-        </Text>
-        <Text style={styles.subtitle}>
-          Children: {children} · Period analyzed: {period} · Generated: {generated}
-          {meta.windows > 1 ? ` · Analyzed in ${meta.windows} time windows` : ""}
-        </Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>Co-Parenting Communication Report</Text>
+          <Text style={styles.headerMeta}>
+            Prepared by the children&rsquo;s {meta.user_role} · Other parent:{" "}
+            {meta.other_parent}
+          </Text>
+          <Text style={styles.headerMeta}>
+            Children: {children} · Period analyzed: {period} · Generated: {generated}
+            {meta.windows > 1 ? ` · Analyzed in ${meta.windows} time windows` : ""}
+          </Text>
+        </View>
 
         <View style={styles.disclaimer}>
           <Text style={styles.disclaimerTitle}>
@@ -519,7 +756,22 @@ export default function CustodyReportPDF({ data }) {
         <PdfBarChart data={carePattern} labelKey="month" series={CARE_SERIES} />
 
         <Text style={styles.h2}>Event Timeline</Text>
-        <PdfTimeline model={model} />
+        {timeline ? (
+          <View>
+            {timeline.years.map((ym) => (
+              <PdfTimeline key={ym.year} model={ym} />
+            ))}
+            <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
+              One chart per year · month gridlines mark seasonal patterns ·
+              squares mark missed or cancelled visits · amber bars are
+              communication gaps
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.empty}>
+            Not enough dated events to build a timeline.
+          </Text>
+        )}
 
         <Section
           title="Missed & Cancelled Visits"
@@ -528,16 +780,21 @@ export default function CustodyReportPDF({ data }) {
           chart={
             report.missed_or_cancelled.length > 0 ? (
               <View>
-                <Text style={styles.caption}>Missed / cancelled per month</Text>
-                <PdfBarChart data={missedTime} labelKey="month" series={MISSED_SERIES} />
-                <Text style={styles.caption}>By type</Text>
-                <PdfBarChart data={missedTypes} labelKey="type" series={MISSED_SERIES} />
+                <Text style={styles.caption}>
+                  Missed / cancelled visits per month, by type
+                </Text>
+                <PdfBarChart
+                  data={missedMonthly}
+                  labelKey="month"
+                  series={missedSeries}
+                />
               </View>
             ) : null
           }
           render={(m) => (
             <EvidenceItem
               date={m.date}
+              channel={m.channel}
               badge={m.kind.replace(/_/g, " ")}
               description={m.description}
               quote={m.quote}
@@ -566,6 +823,7 @@ export default function CustodyReportPDF({ data }) {
           render={(e) => (
             <EvidenceItem
               date={e.date}
+              channel={e.channel}
               badge={`with ${e.parent}`}
               description={e.description}
               quote={e.quote}
@@ -574,6 +832,20 @@ export default function CustodyReportPDF({ data }) {
           )}
         />
 
+        {report.responsibility_events.length > 0 ? (
+          <View wrap={false}>
+            <Text style={styles.h2}>Responsibility Coverage</Text>
+            <Text style={styles.caption}>
+              {meta.user_role} vs. father —{" "}
+              <Text style={{ color: PDF_COLORS.mother }}>mother %</Text>
+              <Text> · </Text>
+              <Text style={{ color: PDF_COLORS.father }}>father %</Text> is each
+              parent&rsquo;s share of that category&rsquo;s instances
+            </Text>
+            <PdfRadar data={radarData} series={RADAR_SERIES} />
+          </View>
+        ) : null}
+
         <Section
           title="Parenting Responsibilities"
           items={report.responsibility_events}
@@ -581,10 +853,16 @@ export default function CustodyReportPDF({ data }) {
           chart={
             report.responsibility_events.length > 0 ? (
               <View>
-                <Text style={styles.caption}>Who handled each responsibility</Text>
-                <PdfBarChart
+                <Text style={styles.caption}>
+                  Who handled each court-recognized category —{" "}
+                  <Text style={{ color: PDF_COLORS.mother }}>mother %</Text>
+                  <Text> · </Text>
+                  <Text style={{ color: PDF_COLORS.father }}>father %</Text> is
+                  each parent&rsquo;s share of that category&rsquo;s instances
+                </Text>
+                <PdfHBar
                   data={responsibilities}
-                  labelKey="category"
+                  labelKey="full"
                   series={RESP_SERIES}
                 />
               </View>
@@ -593,8 +871,11 @@ export default function CustodyReportPDF({ data }) {
           render={(r) => (
             <EvidenceItem
               date={r.date}
-              badge={`${r.category.replace(/_/g, " ")} — ${r.responsible_party}`}
-              description={r.description}
+              channel={r.channel}
+              badge={`${RESPONSIBILITY_LABELS[r.category] || "Other"} — ${r.responsible_party}`}
+              description={
+                r.subcategory ? `${r.subcategory} — ${r.description}` : r.description
+              }
               quote={r.quote}
               sender={r.sender}
             />
@@ -608,10 +889,24 @@ export default function CustodyReportPDF({ data }) {
           render={(t) => (
             <EvidenceItem
               date={t.date}
+              channel={t.channel}
               badge={t.source}
               description={t.description}
               quote={t.quote}
               sender={t.source}
+            />
+          )}
+        />
+
+        <Section
+          title="Suggestions for Building the Case"
+          items={report.suggestions || []}
+          empty="No suggestions were generated."
+          render={(s) => (
+            <EvidenceItem
+              date={s.related_date}
+              badge={SUGGESTION_LABEL[s.category] || "Suggestion"}
+              description={s.suggestion}
             />
           )}
         />
@@ -653,7 +948,8 @@ export default function CustodyReportPDF({ data }) {
           {rows.map((m, i) => (
             <View key={i} style={styles.txRow} wrap={false}>
               <Text style={styles.txMeta}>
-                {m.timestamp} · {m.sender}
+                {m.timestamp} · {m.channel === "email" ? "(email) " : ""}
+                {m.sender}
               </Text>
               <Text style={styles.txBody}>{m.body}</Text>
             </View>

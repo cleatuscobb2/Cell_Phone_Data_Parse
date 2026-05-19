@@ -13,11 +13,15 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import email
 import json
+import re
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from email import policy
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any
 
 
@@ -28,6 +32,8 @@ class Message:
     body: str
     conversation: str
     from_me: bool
+    channel: str = "text"  # "text" or "email"
+    attachments: list[str] = field(default_factory=list)
 
 
 # Candidate key names across the export variants we accept.
@@ -158,12 +164,27 @@ def filter_by_date(messages: list[Message], start: date | None,
     ]
 
 
-def to_condensed_string(messages: list[Message]) -> str:
-    """Render messages grouped by conversation, one line per message.
+def _render_line(m: Message) -> str:
+    """One transcript line. Emails are tagged and list any attachments."""
+    tag = "(email) " if m.channel == "email" else ""
+    line = f"[{m.timestamp:%Y-%m-%d %H:%M}] {tag}{m.sender}: {m.body}"
+    if m.attachments:
+        line += f"  [attachments: {', '.join(m.attachments)}]"
+    return line
 
-    This is the format handed to the LLM — compact, chronological, and
-    cheap on tokens while preserving who-said-what-when.
+
+def to_condensed_string(messages: list[Message]) -> str:
+    """Render messages for the LLM — compact, preserving who-said-what-when.
+
+    When the set mixes text messages and emails, render one chronological
+    stream so the model can build a joint story across the two channels.
+    With a single channel, group by conversation.
     """
+    mixed = len({m.channel for m in messages}) > 1
+    if mixed:
+        ordered = sorted(messages, key=lambda x: x.timestamp)
+        return "\n".join(_render_line(m) for m in ordered)
+
     by_convo: dict[str, list[Message]] = defaultdict(list)
     for m in messages:
         by_convo[m.conversation].append(m)
@@ -171,10 +192,7 @@ def to_condensed_string(messages: list[Message]) -> str:
     blocks: list[str] = []
     for convo, msgs in sorted(by_convo.items()):
         lines = [f"=== Conversation: {convo} ({len(msgs)} messages) ==="]
-        lines += [
-            f"[{m.timestamp:%Y-%m-%d %H:%M}] {m.sender}: {m.body}"
-            for m in msgs
-        ]
+        lines += [_render_line(m) for m in msgs]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -272,9 +290,131 @@ def messages_to_records(messages: list[Message]) -> list[dict]:
             "sender": m.sender,
             "body": m.body,
             "conversation": m.conversation,
+            "channel": m.channel,
         }
         for m in messages
     ]
+
+
+# --- Email parsing ------------------------------------------------------------
+
+_REPLY_MARKERS = (
+    "\n-----Original Message-----",
+    "\n________________________________",
+)
+
+
+def _clean_email_body(text: str) -> str:
+    """Strip quoted reply history, collapse whitespace, and cap the length."""
+    if not text:
+        return ""
+    cut = len(text)
+    for marker in _REPLY_MARKERS:
+        i = text.find(marker)
+        if i != -1:
+            cut = min(cut, i)
+    m = re.search(r"\nOn .{0,200}? wrote:", text, re.DOTALL)
+    if m:
+        cut = min(cut, m.start())
+    text = text[:cut]
+    lines = [ln.strip() for ln in text.splitlines() if not ln.lstrip().startswith(">")]
+    return " ".join(ln for ln in lines if ln)[:800]
+
+
+def _split_mbox(text: str) -> list[str]:
+    """Split an mbox file into individual raw messages."""
+    chunks = re.split(r"(?m)^From .*$\n?", text)
+    return [c for c in chunks if c.strip()]
+
+
+def _email_to_message(msg, user_email: str) -> Message | None:
+    """Convert a parsed email into a Message (channel='email')."""
+    date_hdr = msg.get("Date")
+    if not date_hdr:
+        return None
+    try:
+        ts = parsedate_to_datetime(str(date_hdr))
+    except (TypeError, ValueError, IndexError):
+        return None
+    if ts is None:
+        return None
+
+    from_name, from_addr = parseaddr(str(msg.get("From", "")))
+    from_addr = from_addr.lower()
+    from_me = bool(user_email) and from_addr == user_email
+
+    body_text = ""
+    try:
+        part = msg.get_body(preferencelist=("plain", "html"))
+        if part is not None:
+            content = str(part.get_content())
+            if part.get_content_type() == "text/html":
+                content = re.sub(r"<[^>]+>", " ", content)
+            body_text = _clean_email_body(content)
+    except Exception:
+        body_text = ""
+
+    subject = str(msg.get("Subject", "")).strip()
+    body = f"{subject} — {body_text}" if (subject and body_text) else (subject or body_text)
+    if not body:
+        return None
+
+    attachments: list[str] = []
+    try:
+        for att in msg.iter_attachments():
+            fn = att.get_filename()
+            if fn:
+                attachments.append(str(fn))
+    except Exception:
+        pass
+
+    if from_me:
+        sender = "Me"
+        to_addrs = getaddresses([str(h) for h in (msg.get_all("To") or [])])
+        conversation = next((n or a for n, a in to_addrs if (n or a)), "") or "Email"
+    else:
+        sender = from_name or from_addr or "Unknown sender"
+        conversation = sender
+
+    return Message(
+        timestamp=ts.replace(tzinfo=None),
+        sender=sender,
+        body=body.replace("\n", " ").strip(),
+        conversation=conversation,
+        from_me=from_me,
+        channel="email",
+        attachments=attachments,
+    )
+
+
+def parse_emails(raw: bytes, filename: str, user_email: str | None = None) -> list[Message]:
+    """Parse an .eml (single) or .mbox (bulk) email upload into Messages."""
+    name = (filename or "").lower()
+    user_email = (user_email or "").strip().lower()
+    messages: list[Message] = []
+
+    if name.endswith(".mbox"):
+        text = raw.decode("utf-8", errors="replace")
+        for chunk in _split_mbox(text):
+            try:
+                msg = email.message_from_string(chunk, policy=policy.default)
+            except Exception:
+                continue
+            m = _email_to_message(msg, user_email)
+            if m:
+                messages.append(m)
+    else:
+        # .eml, or a single raw RFC-822 message
+        try:
+            msg = email.message_from_bytes(raw, policy=policy.default)
+            m = _email_to_message(msg, user_email)
+            if m:
+                messages.append(m)
+        except Exception:
+            pass
+
+    messages.sort(key=lambda m: m.timestamp)
+    return messages
 
 
 def _parse_cli_date(value: str | None) -> date | None:
