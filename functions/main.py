@@ -33,7 +33,7 @@ import anthropic
 import firebase_admin
 from firebase_admin import auth as fb_auth
 from firebase_functions import https_fn, options
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from parser import (
     compute_stats,
@@ -452,11 +452,14 @@ def _collect_messages(req: https_fn.Request) -> list:
 DISPLAY_CAP = 500
 # Cap on the full transcript returned with a custody report (PDF appendix).
 TRANSCRIPT_CAP = 2000
-# Chunked custody analysis — a history too large for one pass is split into
-# chronological windows, analyzed concurrently, then merged into one report.
-CHUNK_CHARS = 300_000        # approx. transcript size per window (~135k tokens)
-MAX_CHUNKS = 15              # refuse histories that would need more windows
-CHUNK_CONCURRENCY = 4        # windows analyzed in parallel
+# Chunked custody analysis — a long history is split into chronological
+# windows, analyzed concurrently, then merged into one report. A window is
+# capped by BOTH transcript size and message count: even a modestly sized
+# but event-dense window can overflow a single structured response.
+CHUNK_CHARS = 300_000          # max transcript size per window
+MAX_MESSAGES_PER_WINDOW = 80   # max messages per window (bounds output size)
+MAX_CHUNKS = 20                # refuse histories that would need more windows
+CHUNK_CONCURRENCY = 4          # windows analyzed in parallel
 
 
 # --- /summarize ---------------------------------------------------------------
@@ -521,7 +524,7 @@ def handle_summarize(req: https_fn.Request) -> dict:
     try:
         response = client().messages.parse(
             model=MODEL,
-            max_tokens=8000,
+            max_tokens=16000,
             thinking={"type": "adaptive"},
             system=[{
                 "type": "text",
@@ -533,6 +536,12 @@ def handle_summarize(req: https_fn.Request) -> dict:
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        raise ApiError(
+            413,
+            "The summary output was too large to complete. Narrow the date "
+            "range, contact, or search terms and try again.",
+        )
 
     if response.stop_reason == "max_tokens":
         raise ApiError(
@@ -620,14 +629,16 @@ def _custody_breakdown(events: list[ChildcareEvent]) -> dict:
 
 
 def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
-    """Split time-sorted messages into chronological windows whose condensed
-    transcript stays roughly under max_chars."""
+    """Split time-sorted messages into chronological windows, each kept under
+    max_chars of transcript AND under MAX_MESSAGES_PER_WINDOW messages — the
+    message cap bounds how large the model's extracted output can grow."""
     chunks: list[list] = []
     current: list = []
     size = 0
     for m in messages:
         cost = len(m.body) + 45
-        if current and size + cost > max_chars:
+        full = size + cost > max_chars or len(current) >= MAX_MESSAGES_PER_WINDOW
+        if current and full:
             chunks.append(current)
             current, size = [], 0
         current.append(m)
@@ -647,6 +658,8 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
     try:
         response = client().messages.parse(
             model=MODEL,
+            # 16000 is the most a non-streaming request may request from this
+            # SDK; windowing (below) keeps each window's output well under it.
             max_tokens=16000,
             thinking={"type": "adaptive"},
             system=[{
@@ -659,6 +672,14 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        # The structured output was cut off before its JSON closed — this
+        # window held more events than fit in one response.
+        raise ApiError(
+            413,
+            "A time window produced more events than fit in one response. "
+            "Narrow the date range and try again.",
+        )
     if response.stop_reason == "max_tokens":
         raise ApiError(
             413,
@@ -715,7 +736,7 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
         )
         if response.stop_reason != "max_tokens":
             narrative = response.parsed_output
-    except anthropic.APIStatusError:
+    except (anthropic.APIStatusError, ValidationError):
         narrative = None
 
     if narrative is None:

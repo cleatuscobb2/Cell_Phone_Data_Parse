@@ -34,8 +34,10 @@ import CustodyIntake from "./CustodyIntake.jsx";
 import { getIdToken } from "./firebase.js";
 
 // Local dev defaults to the FastAPI proxy; production sets VITE_API_BASE to
-// the deployed Firebase function URL.
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+// the deployed Firebase function URL. The default uses the explicit IPv4
+// loopback (127.0.0.1, not "localhost") because the backend binds IPv4 only
+// — "localhost" can resolve to IPv6 (::1) and fail to connect.
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
 /**
  * fetch() against the backend, attaching the Firebase ID token when the user
