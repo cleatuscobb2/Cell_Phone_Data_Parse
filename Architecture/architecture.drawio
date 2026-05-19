@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6" pages="2">
   <diagram name="Logical Workflow" id="workflow">
-    <mxGraphModel dx="3165" dy="962" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="2100" math="0" shadow="0">
+    <mxGraphModel dx="2948" dy="837" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="2100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -37,7 +37,7 @@
         <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, state intake, filters)" vertex="1">
           <mxGeometry height="54" width="210" x="495" y="395" as="geometry" />
         </mxCell>
-        <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer the selected state's custody intake&lt;br&gt;(state-gated logic questions — WV today)" vertex="1">
+        <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer the selected state&#39;s custody intake&lt;br&gt;(state-gated logic questions — WV today)" vertex="1">
           <mxGeometry height="50" width="250" x="765" y="297" as="geometry" />
         </mxCell>
         <mxCell id="w-formpacket" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Determine required WV form packet&lt;br&gt;(Logic Path ruleset over 15 forms)" vertex="1">
@@ -239,6 +239,9 @@
         </mxCell>
         <mxCell id="we34" edge="1" parent="1" source="w-export" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-end">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4ez726JLeaTxK4sbdkbn-1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="&lt;b&gt;LEGEND&lt;/b&gt;" vertex="1">
+          <mxGeometry height="30" width="60" x="1185" y="10" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
