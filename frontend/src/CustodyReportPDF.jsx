@@ -34,6 +34,7 @@ import {
   EVIDENCE_LABELS,
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
+import { buildEvidenceRefs } from "./messageRefs.js";
 
 const styles = StyleSheet.create({
   page: {
@@ -611,6 +612,26 @@ function PdfTimeline({ model }) {
                 }}
               />
             ))}
+            {/* Source-message ref above each marker — the print stand-in
+                for the web timeline's hover detail. */}
+            {lane.points.map((p, j) =>
+              p.ref ? (
+                <Text
+                  key={`r${j}`}
+                  style={{
+                    position: "absolute",
+                    left: p.frac * PLOT_W - 11,
+                    top: LANE_H / 2 - mk / 2 - 7,
+                    width: 22,
+                    textAlign: "center",
+                    fontSize: 3.8,
+                    color: p.color,
+                  }}
+                >
+                  {p.ref}
+                </Text>
+              ) : null,
+            )}
           </View>
         </View>
       ))}
@@ -620,7 +641,15 @@ function PdfTimeline({ model }) {
 
 const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Source unclear" };
 
-function EvidenceItem({ date, channel, badge, description, quote, sender }) {
+function EvidenceItem({
+  date,
+  channel,
+  badge,
+  description,
+  quote,
+  sender,
+  sourceRef,
+}) {
   const src = CHANNEL_LABEL[channel];
   return (
     <View style={styles.evidence} wrap={false}>
@@ -628,6 +657,11 @@ function EvidenceItem({ date, channel, badge, description, quote, sender }) {
         <Text style={styles.evidenceDate}>
           {date || "date unclear"}
           {src ? <Text style={styles.source}> · {src}</Text> : null}
+          {sourceRef ? (
+            <Text style={{ fontFamily: "Helvetica-Bold", color: "#475569" }}>
+              {" "}· {sourceRef}
+            </Text>
+          ) : null}
         </Text>
         {badge ? <Text style={styles.badge}>{badge}</Text> : null}
       </View>
@@ -669,7 +703,9 @@ function Section({ title, items, empty, render, chart }) {
 
 export default function CustodyReportPDF({ data }) {
   const { meta, custody_breakdown: cb, report, transcript = [] } = data;
-  const timeline = buildYearlyTimelineModels(report);
+  const timeline = buildYearlyTimelineModels(report, transcript);
+  // Ref-annotated transcript + a linker from each event to its source message.
+  const { refed, link } = buildEvidenceRefs(data);
   const caseProfile = meta.case_profile || {};
   const requiredFormList = Object.keys(caseProfile).length
     ? requiredForms(caseProfile)
@@ -713,8 +749,8 @@ export default function CustodyReportPDF({ data }) {
   // Auto-paginating one very long list overflows @react-pdf's layout math.
   const TX_PER_PAGE = 52;
   const txPages = [];
-  for (let i = 0; i < transcript.length; i += TX_PER_PAGE) {
-    txPages.push(transcript.slice(i, i + TX_PER_PAGE));
+  for (let i = 0; i < refed.length; i += TX_PER_PAGE) {
+    txPages.push(refed.slice(i, i + TX_PER_PAGE));
   }
   if (txPages.length === 0) txPages.push([]);
 
@@ -851,7 +887,8 @@ export default function CustodyReportPDF({ data }) {
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
               One chart per year · month gridlines mark seasonal patterns ·
               squares mark missed or cancelled visits · amber bars are
-              communication gaps
+              communication gaps · the ID above each marker (T# / E#) cites the
+              source message in the Appendix
             </Text>
           </View>
         ) : (
@@ -886,6 +923,7 @@ export default function CustodyReportPDF({ data }) {
               description={m.description}
               quote={m.quote}
               sender={m.sender}
+              sourceRef={link(m)}
             />
           )}
         />
@@ -915,6 +953,7 @@ export default function CustodyReportPDF({ data }) {
               description={e.description}
               quote={e.quote}
               sender={e.sender}
+              sourceRef={link(e)}
             />
           )}
         />
@@ -965,6 +1004,7 @@ export default function CustodyReportPDF({ data }) {
               }
               quote={r.quote}
               sender={r.sender}
+              sourceRef={link(r)}
             />
           )}
         />
@@ -981,6 +1021,7 @@ export default function CustodyReportPDF({ data }) {
               description={t.description}
               quote={t.quote}
               sender={t.source}
+              sourceRef={link(t)}
             />
           )}
         />
@@ -1078,7 +1119,8 @@ export default function CustodyReportPDF({ data }) {
               <Text style={styles.title}>Appendix: Message Log</Text>
               <Text style={[styles.subtitle, { marginBottom: 8 }]}>
                 {transcript.length} message{transcript.length === 1 ? "" : "s"},
-                chronological.
+                chronological. Each carries a reference ID — T# for texts, E#
+                for emails — cited by the timeline markers and evidence entries.
                 {meta.transcript_truncated
                   ? " This appendix is capped at the first 2,000 messages — the" +
                     " original export file is the authoritative complete record" +
@@ -1090,8 +1132,11 @@ export default function CustodyReportPDF({ data }) {
           {rows.map((m, i) => (
             <View key={i} style={styles.txRow} wrap={false}>
               <Text style={styles.txMeta}>
-                {m.timestamp} · {m.channel === "email" ? "(email) " : ""}
-                {m.sender}
+                <Text style={{ fontFamily: "Helvetica-Bold", color: "#475569" }}>
+                  {m.ref}
+                </Text>
+                {"  "}
+                {m.timestamp} · {m.sender}
               </Text>
               <Text style={styles.txBody}>{m.body}</Text>
             </View>

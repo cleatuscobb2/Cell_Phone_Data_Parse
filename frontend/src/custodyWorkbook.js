@@ -13,11 +13,15 @@
  *   - Resp - <Category>   — one tab per court category that has events
  *   - Third-Party         — corroborating statements from others
  *   - Suggestions         — case-building action items
+ *   - Timeline            — every dated event in one chronological list
  *   - Message Log         — the full chronological transcript
  *
  * Every evidence row carries the fields needed to trace and present it:
  * date, source channel (text/email), the tag/category, who is responsible,
- * a description, the verbatim quote, and the message sender.
+ * a description, the verbatim quote, and the message sender. Each message
+ * in the log gets a short reference ID (T# for texts, E# for emails); every
+ * evidence and timeline row links back to the message it was quoted from
+ * via that ID, so a row can be traced to its exact source.
  */
 
 import ExcelJS from "exceljs";
@@ -28,6 +32,7 @@ import {
   EVIDENCE_LABELS,
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
+import { buildEvidenceRefs } from "./messageRefs.js";
 
 const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Unclear" };
 const MISSED_KIND_LABEL = {
@@ -91,6 +96,7 @@ function dataSheet(wb, name, columns, rows) {
 // --- Column definitions -------------------------------------------------------
 
 const CHILDCARE_COLS = [
+  { header: "Source ref", key: "ref", width: 11 },
   { header: "Date", key: "date", width: 13 },
   { header: "Source", key: "channel", width: 9 },
   { header: "In whose care", key: "parent", width: 14 },
@@ -100,6 +106,7 @@ const CHILDCARE_COLS = [
 ];
 
 const MISSED_COLS = [
+  { header: "Source ref", key: "ref", width: 11 },
   { header: "Date", key: "date", width: 13 },
   { header: "Source", key: "channel", width: 9 },
   { header: "Type", key: "kind", width: 19 },
@@ -116,6 +123,7 @@ const GAP_COLS = [
 ];
 
 const RESP_COLS = [
+  { header: "Source ref", key: "ref", width: 11 },
   { header: "Date", key: "date", width: 13 },
   { header: "Source", key: "channel", width: 9 },
   { header: "Court category", key: "category", width: 25 },
@@ -127,6 +135,7 @@ const RESP_COLS = [
 ];
 
 const THIRD_PARTY_COLS = [
+  { header: "Source ref", key: "ref", width: 11 },
   { header: "Date", key: "date", width: 13 },
   { header: "Source", key: "channel", width: 9 },
   { header: "Statement by", key: "source", width: 22 },
@@ -149,6 +158,7 @@ const REQUIRED_FORM_COLS = [
 ];
 
 const LOG_COLS = [
+  { header: "Ref", key: "ref", width: 9 },
   { header: "Timestamp", key: "timestamp", width: 18 },
   { header: "Source", key: "channel", width: 9 },
   { header: "Sender", key: "sender", width: 20 },
@@ -156,9 +166,19 @@ const LOG_COLS = [
   { header: "Message", key: "body", width: 92 },
 ];
 
+const TIMELINE_COLS = [
+  { header: "Date", key: "date", width: 14 },
+  { header: "Lane", key: "lane", width: 22 },
+  { header: "Detail", key: "detail", width: 30 },
+  { header: "Source ref", key: "ref", width: 11 },
+  { header: "Description", key: "description", width: 62 },
+  { header: "Verbatim quote", key: "quote", width: 62 },
+];
+
 // --- Row mappers --------------------------------------------------------------
 
-const respRow = (r) => ({
+const respRow = (r, link) => ({
+  ref: link(r) || "",
   date: r.date || "",
   channel: channelLabel(r.channel),
   category: RESPONSIBILITY_LABELS[r.category] || "Other",
@@ -272,15 +292,13 @@ function buildSummarySheet(wb, meta, cb, report) {
  * callers turn it into a Blob (browser) or write it to disk (Node).
  */
 export function buildCustodyWorkbook(data) {
-  const {
-    meta = {},
-    custody_breakdown: cb = {},
-    report = {},
-    transcript = [],
-  } = data || {};
+  const { meta = {}, custody_breakdown: cb = {}, report = {} } = data || {};
   const wb = new ExcelJS.Workbook();
   wb.creator = "Co-Parenting Communication Report";
   wb.created = new Date();
+
+  // Ref-annotated transcript + a linker from each event to its source message.
+  const { refed, link } = buildEvidenceRefs(data);
 
   buildSummarySheet(wb, meta, cb, report);
 
@@ -319,6 +337,7 @@ export function buildCustodyWorkbook(data) {
     "Childcare",
     CHILDCARE_COLS,
     (report.childcare_events || []).map((e) => ({
+      ref: link(e) || "",
       date: e.date || "",
       channel: channelLabel(e.channel),
       parent: partyLabel(e.parent),
@@ -333,6 +352,7 @@ export function buildCustodyWorkbook(data) {
     "Missed & Cancelled",
     MISSED_COLS,
     (report.missed_or_cancelled || []).map((m) => ({
+      ref: link(m) || "",
       date: m.date || "",
       channel: channelLabel(m.channel),
       kind: MISSED_KIND_LABEL[m.kind] || "Other",
@@ -355,13 +375,23 @@ export function buildCustodyWorkbook(data) {
   );
 
   const respEvents = report.responsibility_events || [];
-  dataSheet(wb, "Responsibilities", RESP_COLS, respEvents.map(respRow));
+  dataSheet(
+    wb,
+    "Responsibilities",
+    RESP_COLS,
+    respEvents.map((r) => respRow(r, link)),
+  );
 
   // One tab per court category that actually has events.
   for (const cat of RESPONSIBILITY_CATEGORIES) {
     const evts = respEvents.filter((r) => r.category === cat.key);
     if (evts.length === 0) continue;
-    dataSheet(wb, `Resp - ${cat.short}`, RESP_COLS, evts.map(respRow));
+    dataSheet(
+      wb,
+      `Resp - ${cat.short}`,
+      RESP_COLS,
+      evts.map((r) => respRow(r, link)),
+    );
   }
 
   dataSheet(
@@ -369,6 +399,7 @@ export function buildCustodyWorkbook(data) {
     "Third-Party",
     THIRD_PARTY_COLS,
     (report.third_party_statements || []).map((t) => ({
+      ref: link(t) || "",
       date: t.date || "",
       channel: channelLabel(t.channel),
       source: t.source || "",
@@ -388,11 +419,62 @@ export function buildCustodyWorkbook(data) {
     })),
   );
 
+  // Timeline — every dated event in one chronological list, each carrying
+  // the source-message ref so a marker can be traced back to its text/email.
+  const timelineRows = [
+    ...(report.childcare_events || []).map((e) => ({
+      date: e.date || "",
+      lane: "Childcare",
+      detail: `In ${partyLabel(e.parent).toLowerCase()}'s care`,
+      ref: link(e) || "",
+      description: e.description || "",
+      quote: e.quote || "",
+    })),
+    ...(report.missed_or_cancelled || []).map((m) => ({
+      date: m.date || "",
+      lane: "Missed / Cancelled",
+      detail: MISSED_KIND_LABEL[m.kind] || "Other",
+      ref: link(m) || "",
+      description: m.description || "",
+      quote: m.quote || "",
+    })),
+    ...(report.responsibility_events || []).map((r) => ({
+      date: r.date || "",
+      lane: "Responsibilities",
+      detail: `${RESPONSIBILITY_LABELS[r.category] || "Other"} — ${partyLabel(
+        r.responsible_party,
+      )}`,
+      ref: link(r) || "",
+      description: r.description || "",
+      quote: r.quote || "",
+    })),
+    ...(report.third_party_statements || []).map((t) => ({
+      date: t.date || "",
+      lane: "Third-Party",
+      detail: t.source || "",
+      ref: link(t) || "",
+      description: t.description || "",
+      quote: t.quote || "",
+    })),
+    ...(report.communication_gaps || []).map((g) => ({
+      date: g.start_date || "",
+      lane: "Communication Gap",
+      detail: `${g.start_date || "?"} to ${g.end_date || "?"} (${
+        g.days ?? "?"
+      } days)`,
+      ref: "",
+      description: g.description || "",
+      quote: "",
+    })),
+  ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  dataSheet(wb, "Timeline", TIMELINE_COLS, timelineRows);
+
   dataSheet(
     wb,
     "Message Log",
     LOG_COLS,
-    (transcript || []).map((m) => ({
+    (refed || []).map((m) => ({
+      ref: m.ref || "",
       timestamp: m.timestamp || "",
       channel: channelLabel(m.channel),
       sender: m.sender || "",

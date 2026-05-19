@@ -185,8 +185,20 @@ function buildReport(spec) {
     channel: channelOf(i),
   }));
 
-  const transcript = Array.from({ length: spec.transcript }, (_, i) => {
-    const ms = start + ((end - start) * i) / spec.transcript;
+  // Weave every event's verbatim quote into the transcript as a real, dated
+  // message — so the report's source-ref linking (T#/E#) actually resolves.
+  const evidenceMsgs = [...childcare, ...missed, ...responsibility, ...thirdParty].map(
+    (e) => ({
+      timestamp: `${e.date} 12:00`,
+      sender: e.sender || "Me",
+      body: e.quote,
+      conversation: "Dave",
+      channel: e.channel || "text",
+    }),
+  );
+  const fillerCount = Math.max(0, spec.transcript - evidenceMsgs.length);
+  const fillerMsgs = Array.from({ length: fillerCount }, (_, i) => {
+    const ms = start + ((end - start) * i) / Math.max(1, fillerCount);
     const d = new Date(ms);
     return {
       timestamp: `${d.toISOString().slice(0, 10)} ${String(d.getUTCHours()).padStart(2, "0")}:00`,
@@ -196,6 +208,9 @@ function buildReport(spec) {
       channel: i % 3 === 0 ? "email" : "text",
     };
   });
+  const transcript = [...evidenceMsgs, ...fillerMsgs].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  );
 
   const suggestions = [
     { category: "attachment", related_date: iso(start, end, 0.18),

@@ -9,6 +9,8 @@
  * year. Every event is placed by `frac` (0..1) along its year.
  */
 
+import { refMessages, sourceRef } from "./messageRefs.js";
+
 export const TIMELINE_LANES = [
   { key: "childcare", label: "Childcare", color: "#6366f1" },
   { key: "missed", label: "Missed / Cancelled", color: "#e11d48" },
@@ -39,13 +41,14 @@ function parseDate(s) {
 
 /**
  * Pull every dated event out of the report, keeping raw Date objects so the
- * yearly builder can re-bucket them. Point events carry a color + hover
- * title; communication gaps are spans with start/end dates.
+ * yearly builder can re-bucket them. Point events carry a color, hover
+ * title, and `ref` — the source text/email ID. Communication gaps are spans.
  */
-function extractEvents(report) {
+function extractEvents(report, refed) {
   const point = (e, color, title) => {
     const date = parseDate(e.date);
-    return date ? { date, color, title } : null;
+    if (!date) return null;
+    return { date, color, title, ref: sourceRef(e.quote, e.date, refed) };
   };
 
   const childcare = (report.childcare_events || [])
@@ -102,9 +105,9 @@ function extractEvents(report) {
  * the same shape the renderers expect (`lanes`, `ticks`) plus a `year`.
  * `laneTotals` carries the overall per-lane counts for the filter chips.
  */
-export function buildYearlyTimelineModels(report) {
+export function buildYearlyTimelineModels(report, transcript) {
   if (!report) return null;
-  const events = extractEvents(report);
+  const events = extractEvents(report, refMessages(transcript || []));
 
   // Every year touched by any event (gaps count both endpoints' years).
   const pointDates = [
@@ -153,7 +156,12 @@ export function buildYearlyTimelineModels(report) {
       }
       const points = (byKey[lane.key] || [])
         .filter((e) => inYear(e.date))
-        .map((e) => ({ frac: frac(e.date), color: e.color, title: e.title }));
+        .map((e) => ({
+          frac: frac(e.date),
+          color: e.color,
+          title: e.ref ? `${e.ref} · ${e.title}` : e.title,
+          ref: e.ref,
+        }));
       return { ...lane, points, spans: [], count: points.length };
     });
 

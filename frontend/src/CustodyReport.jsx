@@ -496,7 +496,7 @@ export default function CustodyReport({ data }) {
         title="Event Timeline"
         subtitle="One chart per year with month gridlines — toggle lanes to filter"
       >
-        <Timeline report={report} />
+        <Timeline report={report} transcript={data.transcript} />
       </Panel>
 
       <div className="grid gap-6 md:grid-cols-2">

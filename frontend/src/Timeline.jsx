@@ -162,8 +162,11 @@ function YearChart({ model, hidden }) {
   );
 }
 
-export default function Timeline({ report }) {
-  const data = useMemo(() => buildYearlyTimelineModels(report), [report]);
+export default function Timeline({ report, transcript }) {
+  const data = useMemo(
+    () => buildYearlyTimelineModels(report, transcript),
+    [report, transcript],
+  );
   const [hidden, setHidden] = useState(() => new Set());
 
   if (!data) {
