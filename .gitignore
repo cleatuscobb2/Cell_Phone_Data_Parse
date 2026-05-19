@@ -19,3 +19,8 @@ dist/
 # Firebase
 .firebase/
 firebase-debug.log
+
+# draw.io temp / backup files
+.$*
+*.dtmp
+*.bkp

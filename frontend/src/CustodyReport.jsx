@@ -38,6 +38,11 @@ import {
   responsibilityRadarData,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
+import {
+  requiredForms,
+  FORM_EVIDENCE,
+  EVIDENCE_LABELS,
+} from "./custodyForms.js";
 
 const PARENT_COLORS = {
   mother: "#6366f1",
@@ -316,6 +321,22 @@ export default function CustodyReport({ data }) {
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
 
+  // WV filing-form packet — derived from the intake answers echoed in meta.
+  const caseProfile = meta.case_profile || {};
+  const hasCaseProfile = Object.keys(caseProfile).length > 0;
+  const requiredFormList = hasCaseProfile ? requiredForms(caseProfile) : [];
+  const jur = meta.jurisdiction || {};
+  const jurLabel = jur.county
+    ? `${jur.county} County, ${jur.state || "West Virginia"}`
+    : null;
+  const evidenceCount = {
+    childcare: report.childcare_events.length,
+    missed: report.missed_or_cancelled.length,
+    gaps: report.communication_gaps.length,
+    responsibilities: report.responsibility_events.length,
+    thirdparty: report.third_party_statements.length,
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -392,6 +413,57 @@ export default function CustodyReport({ data }) {
       <Panel title="Overview">
         <p className="text-sm text-slate-700">{report.overview}</p>
       </Panel>
+
+      {hasCaseProfile && (
+        <Panel
+          title="Required WV Filing Forms"
+          subtitle={
+            jurLabel
+              ? `Form packet to file with the Family Court in ${jurLabel} — with the supporting evidence in this report`
+              : "The form packet for this case, with the report evidence that supports each"
+          }
+        >
+          <ul className="space-y-2">
+            {requiredFormList.map((f) => {
+              const ev = FORM_EVIDENCE[f.id] || [];
+              return (
+                <li
+                  key={f.id}
+                  className="rounded-md border border-slate-100 px-3 py-2"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <Badge
+                      text={f.number}
+                      className="bg-indigo-100 text-indigo-700 ring-indigo-200"
+                    />
+                    <span className="text-sm font-medium text-slate-700">
+                      {f.title}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500">{f.reason}</p>
+                  {ev.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      <span className="font-medium">Supporting evidence:</span>{" "}
+                      {ev
+                        .map((k) =>
+                          evidenceCount[k] != null
+                            ? `${EVIDENCE_LABELS[k]} (${evidenceCount[k]})`
+                            : EVIDENCE_LABELS[k],
+                        )
+                        .join(", ")}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-xs text-slate-400">
+            File the completed packet with the Circuit Clerk / Family Court in
+            the county where the child lives. This list is an organizational
+            aid — confirm the current forms with the court or your attorney.
+          </p>
+        </Panel>
+      )}
 
       {report.suggestions?.length > 0 && (
         <Panel

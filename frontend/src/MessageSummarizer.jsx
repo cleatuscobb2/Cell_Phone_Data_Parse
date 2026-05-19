@@ -29,6 +29,8 @@ import {
 } from "recharts";
 import CustodyReport from "./CustodyReport.jsx";
 import LoadingAnimation from "./LoadingAnimation.jsx";
+import JurisdictionSelect from "./JurisdictionSelect.jsx";
+import CustodyIntake from "./CustodyIntake.jsx";
 import { getIdToken } from "./firebase.js";
 
 // Local dev defaults to the FastAPI proxy; production sets VITE_API_BASE to
@@ -149,6 +151,9 @@ export default function MessageSummarizer() {
   const [otherParent, setOtherParent] = useState("");
   const [userRole, setUserRole] = useState("mother");
   const [childrenNames, setChildrenNames] = useState("");
+  const [caseState, setCaseState] = useState("");
+  const [caseCounty, setCaseCounty] = useState("");
+  const [caseProfile, setCaseProfile] = useState({});
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -229,6 +234,11 @@ export default function MessageSummarizer() {
       form.append("other_parent", otherParent.trim());
       form.append("user_role", userRole);
       if (childrenNames.trim()) form.append("children", childrenNames.trim());
+      if (caseState) form.append("state", caseState);
+      if (caseCounty) form.append("county", caseCounty);
+      if (Object.keys(caseProfile).length > 0) {
+        form.append("case_profile", JSON.stringify(caseProfile));
+      }
     } else {
       endpoint = "/summarize";
       if (searchTerms.trim()) form.append("search_terms", searchTerms.trim());
@@ -355,6 +365,41 @@ export default function MessageSummarizer() {
                 className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
               />
             </label>
+          </div>
+        )}
+
+        {/* Court jurisdiction — scopes the evidence package to a county. */}
+        {isCustody && (
+          <div>
+            <p className="text-xs font-medium text-slate-600">Court jurisdiction</p>
+            <p className="mb-1.5 text-xs text-slate-400">
+              The state and county where the case is filed — used to align the
+              evidence package with that court&rsquo;s requirements.
+            </p>
+            <JurisdictionSelect
+              state={caseState}
+              county={caseCounty}
+              onStateChange={(s) => {
+                setCaseState(s);
+                setCaseCounty("");
+              }}
+              onCountyChange={setCaseCounty}
+            />
+          </div>
+        )}
+
+        {/* WV custody filing intake — answers drive the required form packet
+            and tailor the analysis to the filer's specific case. */}
+        {isCustody && (
+          <div>
+            <p className="text-xs font-medium text-slate-600">
+              WV custody filing intake
+            </p>
+            <p className="mb-1.5 text-xs text-slate-400">
+              Answer these to determine the exact West Virginia form packet
+              your case requires and to tailor the analysis to it.
+            </p>
+            <CustodyIntake answers={caseProfile} onChange={setCaseProfile} />
           </div>
         )}
 

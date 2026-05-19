@@ -1,0 +1,409 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6" pages="2">
+  <diagram name="Logical Workflow" id="workflow">
+    <mxGraphModel dx="3165" dy="962" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="2100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="w-title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;" value="Cell_Data_Parse — Logical Workflow" vertex="1">
+          <mxGeometry height="34" width="520" x="40" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="w-leg-proc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" value="Process step" vertex="1">
+          <mxGeometry height="26" width="150" x="1140" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="w-leg-dec" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" value="Decision / branch" vertex="1">
+          <mxGeometry height="34" width="150" x="1140" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="w-leg-claude" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" value="Claude API call" vertex="1">
+          <mxGeometry height="26" width="150" x="1140" y="116" as="geometry" />
+        </mxCell>
+        <mxCell id="w-leg-err" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" value="Error path" vertex="1">
+          <mxGeometry height="26" width="150" x="1140" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="w-leg-data" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" value="Data output" vertex="1">
+          <mxGeometry height="26" width="150" x="1140" y="184" as="geometry" />
+        </mxCell>
+        <mxCell id="w-start" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="User opens the app" vertex="1">
+          <mxGeometry height="46" width="150" x="525" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="w-auth" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Firebase auth&lt;br&gt;gate enabled?" vertex="1">
+          <mxGeometry height="100" width="170" x="515" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="w-signin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Sign in with Google&lt;br&gt;(Firebase Auth)" vertex="1">
+          <mxGeometry height="46" width="190" x="790" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="w-upload" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Upload text and / or&lt;br&gt;email files" vertex="1">
+          <mxGeometry height="54" width="210" x="495" y="295" as="geometry" />
+        </mxCell>
+        <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, WV intake, filters)" vertex="1">
+          <mxGeometry height="54" width="210" x="495" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer WV custody intake&lt;br&gt;(7 case-profile logic questions)" vertex="1">
+          <mxGeometry height="50" width="250" x="765" y="297" as="geometry" />
+        </mxCell>
+        <mxCell id="w-formpacket" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Determine required WV form packet&lt;br&gt;(Logic Path ruleset over 15 forms)" vertex="1">
+          <mxGeometry height="54" width="250" x="980" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="we-form-intake" edge="1" parent="1" source="w-form" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" target="w-intake" value="custody mode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we-intake-packet" edge="1" parent="1" source="w-intake" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="w-formpacket">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w-submit" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Required inputs&lt;br&gt;provided?" vertex="1">
+          <mxGeometry height="100" width="170" x="515" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="w-loading" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Show processing animation&lt;br&gt;(Fibonacci spiral)" vertex="1">
+          <mxGeometry height="46" width="210" x="495" y="700" as="geometry" />
+        </mxCell>
+        <mxCell id="w-mode" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Analysis mode?" vertex="1">
+          <mxGeometry height="100" width="170" x="515" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="w-errin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error: add a file, and&lt;br&gt;name the other parent" vertex="1">
+          <mxGeometry height="54" width="210" x="785" y="496" as="geometry" />
+        </mxCell>
+        <mxCell id="w-sparse" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Parse &amp;amp; merge messages&lt;br&gt;(text + email, in memory)" vertex="1">
+          <mxGeometry height="50" width="210" x="185" y="950" as="geometry" />
+        </mxCell>
+        <mxCell id="w-sfilter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Filter by date /&lt;br&gt;contact / search terms" vertex="1">
+          <mxGeometry height="50" width="210" x="185" y="1025" as="geometry" />
+        </mxCell>
+        <mxCell id="w-stok" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Within model&lt;br&gt;context limit?" vertex="1">
+          <mxGeometry height="100" width="170" x="205" y="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="w-sclaude" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Claude API:&lt;br&gt;structured summary" vertex="1">
+          <mxGeometry height="54" width="210" x="185" y="1240" as="geometry" />
+        </mxCell>
+        <mxCell id="w-sout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="ConversationSummary&lt;br&gt;(takeaways, sentiment, …)" vertex="1">
+          <mxGeometry height="50" width="210" x="185" y="1325" as="geometry" />
+        </mxCell>
+        <mxCell id="w-cparse" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Parse &amp;amp; merge messages&lt;br&gt;(text + email, in memory)" vertex="1">
+          <mxGeometry height="50" width="210" x="805" y="950" as="geometry" />
+        </mxCell>
+        <mxCell id="w-cfilter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Filter by date / contact" vertex="1">
+          <mxGeometry height="50" width="210" x="805" y="1025" as="geometry" />
+        </mxCell>
+        <mxCell id="w-csplit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Split into chronological&lt;br&gt;time windows" vertex="1">
+          <mxGeometry height="50" width="210" x="805" y="1095" as="geometry" />
+        </mxCell>
+        <mxCell id="w-cwin" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Window&lt;br&gt;count?" vertex="1">
+          <mxGeometry height="100" width="170" x="825" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="w-csingle" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Claude API:&lt;br&gt;single extraction pass" vertex="1">
+          <mxGeometry height="54" width="190" x="600" y="1315" as="geometry" />
+        </mxCell>
+        <mxCell id="w-cconcur" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Claude API: concurrent&lt;br&gt;window extraction (×N)" vertex="1">
+          <mxGeometry height="54" width="200" x="900" y="1315" as="geometry" />
+        </mxCell>
+        <mxCell id="w-creduce" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Claude API:&lt;br&gt;reduce &amp;amp; merge windows" vertex="1">
+          <mxGeometry height="54" width="200" x="900" y="1400" as="geometry" />
+        </mxCell>
+        <mxCell id="w-cout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="CustodyReport + breakdown&lt;br&gt;+ required forms + transcript" vertex="1">
+          <mxGeometry height="50" width="230" x="755" y="1520" as="geometry" />
+        </mxCell>
+        <mxCell id="w-errsum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error 413:&lt;br&gt;selection too large" vertex="1">
+          <mxGeometry height="54" width="170" x="-40" y="1123" as="geometry" />
+        </mxCell>
+        <mxCell id="w-errcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error 413: too many&lt;br&gt;windows — narrow scope" vertex="1">
+          <mxGeometry height="54" width="200" x="1130" y="1193" as="geometry" />
+        </mxCell>
+        <mxCell id="w-return" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Return JSON result&lt;br&gt;to the browser" vertex="1">
+          <mxGeometry height="54" width="210" x="495" y="1518" as="geometry" />
+        </mxCell>
+        <mxCell id="w-res" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Result type?" vertex="1">
+          <mxGeometry height="100" width="170" x="515" y="1620" as="geometry" />
+        </mxCell>
+        <mxCell id="w-rsum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render summary view&lt;br&gt;(insights, charts)" vertex="1">
+          <mxGeometry height="54" width="210" x="270" y="1860" as="geometry" />
+        </mxCell>
+        <mxCell id="w-rcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render custody report&lt;br&gt;(charts, timeline, evidence, required forms)" vertex="1">
+          <mxGeometry height="54" width="230" x="790" y="1770" as="geometry" />
+        </mxCell>
+        <mxCell id="w-export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Download PDF report or&lt;br&gt;Excel evidence workbook" vertex="1">
+          <mxGeometry height="54" width="230" x="790" y="1860" as="geometry" />
+        </mxCell>
+        <mxCell id="w-end" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Done" vertex="1">
+          <mxGeometry height="46" width="150" x="525" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="we1" edge="1" parent="1" source="w-start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-auth">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we2" edge="1" parent="1" source="w-auth" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="w-signin" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we3" edge="1" parent="1" source="w-auth" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-upload" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we4" edge="1" parent="1" source="w-signin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="w-upload">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we5" edge="1" parent="1" source="w-upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-form">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we6" edge="1" parent="1" source="w-form" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-submit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we7" edge="1" parent="1" source="w-submit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-errin" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we8" edge="1" parent="1" source="w-submit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-loading" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we9" edge="1" parent="1" source="w-errin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" target="w-form" value="fix &amp;amp; retry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we10" edge="1" parent="1" source="w-loading" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-mode">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we11" edge="1" parent="1" source="w-mode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-sparse" value="General Summary">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we12" edge="1" parent="1" source="w-mode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cparse" value="Custody Analysis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we13" edge="1" parent="1" source="w-sparse" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-sfilter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we14" edge="1" parent="1" source="w-sfilter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-stok">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we15" edge="1" parent="1" source="w-stok" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-errsum" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we16" edge="1" parent="1" source="w-stok" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-sclaude" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we17" edge="1" parent="1" source="w-sclaude" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-sout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we18" edge="1" parent="1" source="w-sout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="w-return">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="440" y="1350" />
+              <mxPoint x="440" y="1545" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="we19" edge="1" parent="1" source="w-cparse" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cfilter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we20" edge="1" parent="1" source="w-cfilter" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-csplit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we21" edge="1" parent="1" source="w-csplit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cwin">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we22" edge="1" parent="1" source="w-cwin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-csingle" value="1 window">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we23" edge="1" parent="1" source="w-cwin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cconcur" value="2–15 windows">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we24" edge="1" parent="1" source="w-cwin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-errcus" value="&amp;gt;15 windows">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we25" edge="1" parent="1" source="w-cconcur" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-creduce">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we26" edge="1" parent="1" source="w-csingle" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cout">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="695" y="1487" />
+              <mxPoint x="870" y="1487" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="we27" edge="1" parent="1" source="w-creduce" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-cout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we28" edge="1" parent="1" source="w-cout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-return">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we29" edge="1" parent="1" source="w-return" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-res">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we30" edge="1" parent="1" source="w-res" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-rsum" value="Summary">
+          <mxGeometry relative="1" x="0.3333" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="we31" edge="1" parent="1" source="w-res" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-rcus" value="Custody">
+          <mxGeometry relative="1" x="-0.3437" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="we32" edge="1" parent="1" source="w-rsum" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we33" edge="1" parent="1" source="w-rcus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-export">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we34" edge="1" parent="1" source="w-export" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Data ERD" id="erd">
+    <mxGraphModel dx="1959" dy="1132" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1980" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="e-title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;" value="Cell_Data_Parse — Data Ontology (ERD)" vertex="1">
+          <mxGeometry height="34" width="560" x="40" y="6" as="geometry" />
+        </mxCell>
+        <mxCell id="er-uploadfile" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;UploadFile&lt;/b&gt;&lt;hr&gt;filename&lt;br&gt;channel : text | email&lt;br&gt;raw_bytes" vertex="1">
+          <mxGeometry height="92" width="220" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-message" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Message&lt;/b&gt;&lt;hr&gt;timestamp&lt;br&gt;sender&lt;br&gt;body&lt;br&gt;conversation&lt;br&gt;from_me : bool&lt;br&gt;channel&lt;br&gt;attachments[ ]" vertex="1">
+          <mxGeometry height="152" width="220" x="40" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="er-conversation" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Conversation&lt;/b&gt;&lt;hr&gt;name&lt;br&gt;message_count&lt;br&gt;first_date&lt;br&gt;last_date" vertex="1">
+          <mxGeometry height="106" width="220" x="40" y="382" as="geometry" />
+        </mxCell>
+        <mxCell id="er-state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;State&lt;/b&gt;&lt;hr&gt;name (PK)" vertex="1">
+          <mxGeometry height="64" width="220" x="40" y="528" as="geometry" />
+        </mxCell>
+        <mxCell id="er-county" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;County&lt;/b&gt;&lt;hr&gt;fips_code (PK)&lt;br&gt;county&lt;br&gt;state" vertex="1">
+          <mxGeometry height="92" width="220" x="40" y="632" as="geometry" />
+        </mxCell>
+        <mxCell id="er-user" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;User&lt;/b&gt;&lt;hr&gt;uid (PK)&lt;br&gt;email&lt;br&gt;display_name" vertex="1">
+          <mxGeometry height="92" width="240" x="340" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-run" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;AnalysisRun&lt;/b&gt;&lt;hr&gt;mode : summary | custody&lt;br&gt;start_date / end_date&lt;br&gt;contact_scope&lt;br&gt;search_terms&lt;br&gt;windows" vertex="1">
+          <mxGeometry height="124" width="240" x="340" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="er-meta" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Meta&lt;/b&gt;&lt;hr&gt;total_messages&lt;br&gt;conversation_count&lt;br&gt;date_range&lt;br&gt;windows&lt;br&gt;other_parent&lt;br&gt;user_role&lt;br&gt;children[ ]&lt;br&gt;transcript_truncated" vertex="1">
+          <mxGeometry height="166" width="240" x="340" y="372" as="geometry" />
+        </mxCell>
+        <mxCell id="er-summary" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ConversationSummary&lt;/b&gt;&lt;hr&gt;overall_sentiment" vertex="1">
+          <mxGeometry height="64" width="230" x="660" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-takeaway" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;KeyTakeaway&lt;/b&gt;&lt;hr&gt;text" vertex="1">
+          <mxGeometry height="64" width="230" x="660" y="164" as="geometry" />
+        </mxCell>
+        <mxCell id="er-action" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ActionItem&lt;/b&gt;&lt;hr&gt;description&lt;br&gt;owner&lt;br&gt;priority : high | medium | low" vertex="1">
+          <mxGeometry height="92" width="230" x="660" y="268" as="geometry" />
+        </mxCell>
+        <mxCell id="er-contact" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ContactInsight&lt;/b&gt;&lt;hr&gt;name&lt;br&gt;relationship_note" vertex="1">
+          <mxGeometry height="78" width="230" x="660" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="er-sentiment" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;SentimentPoint&lt;/b&gt;&lt;hr&gt;period&lt;br&gt;sentiment_score&lt;br&gt;label" vertex="1">
+          <mxGeometry height="92" width="230" x="660" y="518" as="geometry" />
+        </mxCell>
+        <mxCell id="er-finding" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;SearchFinding&lt;/b&gt;&lt;hr&gt;term&lt;br&gt;insight" vertex="1">
+          <mxGeometry height="78" width="230" x="660" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="er-report" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CustodyReport&lt;/b&gt;&lt;hr&gt;overview&lt;br&gt;breakdown_basis&lt;br&gt;sentiment_overview&lt;br&gt;limitations[ ]" vertex="1">
+          <mxGeometry height="106" width="250" x="980" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-breakdown" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CustodyBreakdown&lt;/b&gt;&lt;hr&gt;instances_with_mother&lt;br&gt;instances_with_father&lt;br&gt;instances_shared&lt;br&gt;instances_unclear&lt;br&gt;estimated_pct_mother&lt;br&gt;estimated_pct_father" vertex="1">
+          <mxGeometry height="134" width="250" x="980" y="206" as="geometry" />
+        </mxCell>
+        <mxCell id="er-childcare" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ChildcareEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;parent&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
+          <mxGeometry height="134" width="250" x="980" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="er-missed" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;MissedVisit&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;kind&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
+          <mxGeometry height="134" width="250" x="980" y="554" as="geometry" />
+        </mxCell>
+        <mxCell id="er-gap" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CommunicationGap&lt;/b&gt;&lt;hr&gt;start_date&lt;br&gt;end_date&lt;br&gt;days&lt;br&gt;description" vertex="1">
+          <mxGeometry height="106" width="250" x="1300" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-resp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ResponsibilityEvent&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;category&lt;br&gt;subcategory&lt;br&gt;responsible_party&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;sender&lt;br&gt;channel" vertex="1">
+          <mxGeometry height="166" width="250" x="1300" y="206" as="geometry" />
+        </mxCell>
+        <mxCell id="er-thirdparty" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ThirdPartyStatement&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;source&lt;br&gt;description&lt;br&gt;quote&lt;br&gt;channel" vertex="1">
+          <mxGeometry height="120" width="250" x="1300" y="412" as="geometry" />
+        </mxCell>
+        <mxCell id="er-suggestion" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Suggestion&lt;/b&gt;&lt;hr&gt;category&lt;br&gt;suggestion&lt;br&gt;related_date" vertex="1">
+          <mxGeometry height="92" width="250" x="1300" y="572" as="geometry" />
+        </mxCell>
+        <mxCell id="re1" edge="1" parent="1" source="er-user" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-run" value="initiates">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re2" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-uploadfile" value="ingests">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re3" edge="1" parent="1" source="er-uploadfile" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-message" value="parsed into">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re4" edge="1" parent="1" source="er-conversation" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-message" value="groups">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re5" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;rounded=0;" target="er-meta" value="has">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re6" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-county" value="scoped to">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re7" edge="1" parent="1" source="er-state" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-county" value="contains">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re8" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-summary" value="produces (summary mode)">
+          <mxGeometry relative="1" x="1" y="-52" as="geometry">
+            <mxPoint x="21" y="-4" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re9" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-report" value="produces (custody mode)">
+          <mxGeometry relative="1" x="0.4521" y="-2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re10" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-breakdown" value="produces (custody mode)">
+          <mxGeometry relative="1" x="0.1989" y="7" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re11" edge="1" parent="1" source="er-summary" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-takeaway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re12" edge="1" parent="1" source="er-summary" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-action">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re13" edge="1" parent="1" source="er-summary" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-contact">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re14" edge="1" parent="1" source="er-summary" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-sentiment">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re15" edge="1" parent="1" source="er-summary" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-finding">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re16" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-childcare">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re17" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-missed">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re18" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-gap">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re19" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-resp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re20" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-thirdparty">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re21" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-suggestion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="re22" edge="1" parent="1" source="er-childcare" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-breakdown" value="aggregated into">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er-caseprofile" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CaseProfile&lt;/b&gt;&lt;hr&gt;marital_status&lt;br&gt;case_type : new | modification&lt;br&gt;temporary_relief : bool&lt;br&gt;child_support : bool&lt;br&gt;address_safety : bool&lt;br&gt;other_parent_address&lt;br&gt;military : bool" vertex="1">
+          <mxGeometry height="150" width="260" x="1620" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="er-courtform" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;CourtForm (WV)&lt;/b&gt;&lt;hr&gt;number (PK)&lt;br&gt;title&lt;br&gt;purpose&lt;br&gt;when_used" vertex="1">
+          <mxGeometry height="104" width="260" x="1620" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="re23" edge="1" parent="1" source="er-run" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-caseprofile" value="completes (custody mode)">
+          <mxGeometry relative="1" x="0.1345" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="re24" edge="1" parent="1" source="er-caseprofile" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-courtform" value="determines required packet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -28,6 +28,12 @@ import {
   responsibilityRadarData,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
+import {
+  requiredForms,
+  FORM_EVIDENCE,
+  EVIDENCE_LABELS,
+  INTAKE_QUESTIONS,
+} from "./custodyForms.js";
 
 const styles = StyleSheet.create({
   page: {
@@ -635,6 +641,18 @@ function EvidenceItem({ date, channel, badge, description, quote, sender }) {
   );
 }
 
+/** A label / value row for the provenance settings block. */
+function PdfKV({ label, value }) {
+  return (
+    <View style={{ flexDirection: "row", marginBottom: 1.5 }}>
+      <Text style={{ width: 150, color: "#64748b" }}>{label}</Text>
+      <Text style={{ flex: 1, fontFamily: "Helvetica-Bold" }}>
+        {value || "—"}
+      </Text>
+    </View>
+  );
+}
+
 function Section({ title, items, empty, render, chart }) {
   return (
     <View>
@@ -652,6 +670,26 @@ function Section({ title, items, empty, render, chart }) {
 export default function CustodyReportPDF({ data }) {
   const { meta, custody_breakdown: cb, report, transcript = [] } = data;
   const timeline = buildYearlyTimelineModels(report);
+  const caseProfile = meta.case_profile || {};
+  const requiredFormList = Object.keys(caseProfile).length
+    ? requiredForms(caseProfile)
+    : [];
+  const evidenceCount = {
+    childcare: report.childcare_events.length,
+    missed: report.missed_or_cancelled.length,
+    gaps: report.communication_gaps.length,
+    responsibilities: report.responsibility_events.length,
+    thirdparty: report.third_party_statements.length,
+  };
+  const jur = meta.jurisdiction || {};
+  const jurLabel = jur.county
+    ? `${jur.county} County, ${jur.state || "West Virginia"}`
+    : null;
+  const dateFilter = meta.date_filter || {};
+  const dateFilterLabel =
+    dateFilter.start || dateFilter.end
+      ? `${dateFilter.start || "earliest"} to ${dateFilter.end || "latest"}`
+      : "None — full history";
   const custodySplit = custodySplitData(cb);
   const carePattern = carePatternData(report);
   const missedMonthly = missedByMonthAndTypeData(report);
@@ -739,6 +777,55 @@ export default function CustodyReportPDF({ data }) {
 
         <Text style={styles.h2}>Overview</Text>
         <Text style={styles.para}>{report.overview}</Text>
+
+        {requiredFormList.length > 0 ? (
+          <View>
+            <Text style={styles.h2}>
+              Required WV Filing Forms
+              {jurLabel ? ` — ${jurLabel}` : ""}
+            </Text>
+            <Text style={styles.caption}>
+              {jurLabel
+                ? `The form packet to file with the Family Court in ${jurLabel}, with the report evidence supporting each`
+                : "The West Virginia form packet for this case, with the report evidence supporting each"}
+            </Text>
+            {requiredFormList.map((f, i) => {
+              const ev = FORM_EVIDENCE[f.id] || [];
+              return (
+                <View key={i} style={styles.evidence} wrap={false}>
+                  <Text>
+                    <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                      {f.number}
+                    </Text>{" "}
+                    — {f.title}
+                  </Text>
+                  <Text style={{ color: "#64748b" }}>{f.reason}</Text>
+                  {ev.length > 0 ? (
+                    <Text style={{ color: "#475569", marginTop: 2 }}>
+                      Supporting evidence:{" "}
+                      {ev
+                        .map((k) =>
+                          evidenceCount[k] != null
+                            ? `${EVIDENCE_LABELS[k]} (${evidenceCount[k]})`
+                            : EVIDENCE_LABELS[k],
+                        )
+                        .join(", ")}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
+            <Text style={[styles.para, { color: "#94a3b8", marginTop: 2 }]}>
+              Note: West Virginia&rsquo;s family-court (SCA-FC) forms are
+              uniform statewide — the county determines the filing court and
+              any local cover sheets or fees, not the form set itself. File the
+              completed packet with the Circuit Clerk / Family Court in{" "}
+              {jurLabel || "the county where the child lives"}, and confirm the
+              current forms and any county-specific addenda with the court or
+              counsel.
+            </Text>
+          </View>
+        ) : null}
 
         <Text style={styles.h2}>Custody Breakdown</Text>
         <Text style={styles.para}>
@@ -913,6 +1000,61 @@ export default function CustodyReportPDF({ data }) {
 
         <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
         <Text style={styles.para}>{report.sentiment_overview}</Text>
+
+        <View wrap={false}>
+          <Text style={styles.h2}>Analysis Settings &amp; Provenance</Text>
+          <Text style={styles.caption}>
+            The inputs and settings used to produce this report — recorded so
+            the basis for the analysis is transparent as the case is built.
+          </Text>
+          <PdfKV label="Report generated" value={generated} />
+          <PdfKV label="Analysis model" value={meta.model || "claude-opus-4-7"} />
+          <PdfKV
+            label="Filing jurisdiction"
+            value={jurLabel || "Not specified"}
+          />
+          <PdfKV label="Period analyzed" value={period} />
+          <PdfKV
+            label="Messages analyzed"
+            value={String(meta.total_messages)}
+          />
+          <PdfKV
+            label="Conversation scope"
+            value={meta.contact || "All contacts"}
+          />
+          <PdfKV label="Date filter applied" value={dateFilterLabel} />
+          <PdfKV label="Analysis windows" value={String(meta.windows)} />
+          <PdfKV
+            label="Message log"
+            value={
+              meta.transcript_truncated
+                ? "Capped at the first 2,000 messages"
+                : "Complete"
+            }
+          />
+        </View>
+        {Object.keys(caseProfile).length > 0 ? (
+          <View wrap={false}>
+            <Text style={styles.caption}>
+              WV custody intake answers (case profile)
+            </Text>
+            {INTAKE_QUESTIONS.map((q) => {
+              const opt = q.options.find(
+                (o) => o.value === caseProfile[q.id],
+              );
+              return (
+                <View key={q.id} style={{ marginBottom: 2 }}>
+                  <Text style={{ color: "#64748b" }}>{q.question}</Text>
+                  <Text
+                    style={{ fontFamily: "Helvetica-Bold", marginLeft: 8 }}
+                  >
+                    {opt ? opt.label : "Not answered"}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         <Text style={styles.h2}>Limitations & Caveats</Text>
         {report.limitations.map((l, i) => (

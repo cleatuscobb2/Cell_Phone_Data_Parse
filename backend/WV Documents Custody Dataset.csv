@@ -1,0 +1,16 @@
+Field,Form title,Form number,Function / when used
+initial_petition_form,Petition for Support and/or Allocation of Custodial Responsibility,SCA-FC-261,"Starts a stand-alone custody/support case, especially for unmarried parents or non-divorce custody filings.wikipedia+2"
+initial_petition_form_modification,Petition for Modification,SCA-FC-201,Used to modify an existing custody/support arrangement.wikipedia+1
+case_information_form,Petitioner's Civil Case Information Statement Domestic Relations Cases,SCA-FC-103,Required in all case filings according to the judiciary forms list; Legal Aid also says the civil case information sheet is used when filing a custody modification case.wikipedia+1
+financial_disclosure_form,Financial Statement,SCA-FC-106,"Financial disclosure form used in custody-related cases, especially where support is involved.wikipedia+2"
+parenting_plan_form,Parenting Plan,SCA-FC-121,"Sets out the parenting schedule, decision-making, and other custodial terms.wikipedia+1"
+parenting_plan_worksheet,Worksheet for Individual Proposed Parenting Plan,SCA-FC-128,Worksheet used to prepare the proposed parenting plan.wikipedia+1
+temporary_relief_form,Motion for Temporary Relief,SCA-FC-112,Requests temporary orders on support or custodial responsibility while the case is pending.wikipedia+1
+child_support_enforcement_form,Bureau for Child Support Enforcement - Application and Income Withholding Form,FDVCSAP,Used when children are involved and support enforcement or withholding is needed.wikipedia+1
+service_acceptance_form,Acceptance of Service,SCA-FC-105,Used if the respondent voluntarily accepts the papers.wikipedia+1
+publication_or_unknown_address_form,Affidavit of Out-of-State or Unknown Residency,SCA-FC-110,Used if the respondent’s address is unknown or the respondent lives out of state.wikipedia+1
+publication_order_form,Order of Publication,SCA-FC-111,Used when personal service cannot be completed and publication is needed.wikipedia+1
+service_certificate_form,Certificate of Service,SCA-FC-314,Used for later filings served on the other side after the initial petition.wikipedia+1
+address_confidentiality_form,Affidavit to Withhold Identifying Information,SCA-FC-140,"Used when disclosure of address or phone number would risk safety, liberty, or health.wikipedia+1"
+hearing_notice_form,Notice of Hearing,not listed in statewide family court table excerpt,Used if the court instructs a party to send notice of hearing to the other side.wvfrn
+military_waiver_form,Servicemembers Civil Relief Act Waiver: Waiver of Rights to Request Stay of Proceedings,SCA-FC-115,Relevant when active-duty military protections may apply.wikipedia+1

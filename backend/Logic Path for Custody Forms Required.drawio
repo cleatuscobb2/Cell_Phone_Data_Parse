@@ -1,0 +1,191 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6">
+  <diagram name="WV Custody Workflow" id="IUm6qf82gsIAb2XIFLtj">
+    <mxGraphModel dx="3453" dy="2113" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-1" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Start: Need child custody order in WV" vertex="1">
+          <mxGeometry height="60" width="260" x="130" y="-80" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-2" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Are the parents currently married to each other?" vertex="1">
+          <mxGeometry height="100" width="320" x="100" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-3" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Custody in divorce case&#xa;(use divorce + custody packet)" vertex="1">
+          <mxGeometry height="80" width="320" x="500" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Stand-alone custody / support case&#xa;(unmarried or post-divorce)" vertex="1">
+          <mxGeometry height="80" width="320" x="100" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-6" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-4" value="Yes">
+          <mxGeometry relative="1" x="-0.454" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="420" y="210" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-7" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-5" value="No / Already divorced">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-8" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Is this a new case or a modification of an existing order?" vertex="1">
+          <mxGeometry height="100" width="360" x="80" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-9" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-5" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-10" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-4" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-8">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="260" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="New custody/support case&#xa;Use initial petition form&#xa;• SCA-FC-261 Petition for Support and/or Allocation of Custodial Responsibility" vertex="1">
+          <mxGeometry height="110" width="330" x="95" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Modification of existing order&#xa;• SCA-FC-201 Petition for Modification" vertex="1">
+          <mxGeometry height="80" width="320" x="500" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-13" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-8" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-11" value="New">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-14" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-8" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-12" value="Modify">
+          <mxGeometry relative="1" x="-0.5211" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Prepare core required forms&#xa;for WV custody filing&#xa;&#xa;• SCA-FC-103 Civil Case Information Statement&#xa;• SCA-FC-106 Financial Statement&#xa;• Parenting Plan (SCA-FC-121)&#xa;• Parenting Plan Worksheet (SCA-FC-128)" vertex="1">
+          <mxGeometry height="150" width="320" x="100" y="785" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-16" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-11" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-17" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-15">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="860" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-18" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Do you need temporary custody/&#xa;support orders while case is pending?" vertex="1">
+          <mxGeometry height="80" width="360" x="800" y="820" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="If yes, add:&#xa;• SCA-FC-112 Motion for Temporary Relief" vertex="1">
+          <mxGeometry height="80" width="320" x="820" y="950" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-20" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-15" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-18">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="640" y="860" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-21" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-18" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-19" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-22" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Is child support establishment or enforcement involved?" vertex="1">
+          <mxGeometry height="80" width="360" x="80" y="1000" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="If yes, add:&#xa;• BCSE Application &amp; Income Withholding Form (FDVCSAP)" vertex="1">
+          <mxGeometry height="80" width="340" x="-370" y="1330" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-24" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-15" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-22">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="260" y="1000" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-25" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-22" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-23" value="Yes">
+          <mxGeometry relative="1" x="-0.5081" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-26" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Would revealing your address or contact information&#xa;endanger your safety or health?" vertex="1">
+          <mxGeometry height="80" width="420" x="770" y="1070" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="If yes, add:&#xa;• SCA-FC-140 Affidavit to Withhold Identifying Information" vertex="1">
+          <mxGeometry height="80" width="330" x="820" y="1210" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-28" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-15" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="4sAeJy-KLhY3-Y0_OdW3-26">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="500" y="860" />
+              <mxPoint x="500" y="1110" />
+            </Array>
+            <mxPoint x="640" y="1040" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-29" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-26" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-27" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-30" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Do you know the other parent&#39;s current address/location?" vertex="1">
+          <mxGeometry height="80" width="360" x="80" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="If other parent will accept service:&#xa;• SCA-FC-105 Acceptance of Service" vertex="1">
+          <mxGeometry height="80" width="420" x="50" y="1330" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-32" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="If address unknown or out-of-state:&#xa;• SCA-FC-110 Affidavit of Out-of-State or Unknown Residency&#xa;• SCA-FC-111 Order of Publication (if required)" vertex="1">
+          <mxGeometry height="100" width="330" x="820" y="1380" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-33" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-22" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-30">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="260" y="1200" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-34" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-30" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-31" value="Known &amp; cooperative">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-35" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-30" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-32" value="Unknown / only by publication">
+          <mxGeometry relative="1" x="-0.3193" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="620" y="1190" />
+              <mxPoint x="620" y="1330" />
+              <mxPoint x="985" y="1330" />
+            </Array>
+            <mxPoint x="640" y="1410" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-36" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="For later documents served after filing:&#xa;• SCA-FC-314 Certificate of Service" vertex="1">
+          <mxGeometry height="80" width="420" x="50" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-37" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-31" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-36">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-38" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-32" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-36">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="1480" />
+            </Array>
+            <mxPoint x="260" y="1510" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-39" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Is the other parent on active military duty?" vertex="1">
+          <mxGeometry height="80" width="360" x="800" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-40" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="If yes, court may require:&#xa;• SCA-FC-115 SCRA Waiver (Servicemembers Civil Relief Act)" vertex="1">
+          <mxGeometry height="80" width="330" x="820" y="1690" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-41" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-36" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-39">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="640" y="1530" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-42" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-39" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-40" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-43" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="File completed packet with&#xa;Circuit Clerk / Family Court in county where child lives&#xa;(+ any county-specific cover sheets or fees)" vertex="1">
+          <mxGeometry height="100" width="420" x="50" y="1690" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-44" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="4sAeJy-KLhY3-Y0_OdW3-43">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-200" y="1740" />
+            </Array>
+            <mxPoint x="260" y="1610" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-45" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Case filed&#xa;→ Court schedules preliminary dates / mediation / hearings&#xa;→ Later forms as directed (e.g., Notice of Hearing, updated Parenting Plan)" vertex="1">
+          <mxGeometry height="110" width="520" y="1900" as="geometry" />
+        </mxCell>
+        <mxCell id="4sAeJy-KLhY3-Y0_OdW3-46" edge="1" parent="1" source="4sAeJy-KLhY3-Y0_OdW3-43" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;strokeColor=#000000;" target="4sAeJy-KLhY3-Y0_OdW3-45">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

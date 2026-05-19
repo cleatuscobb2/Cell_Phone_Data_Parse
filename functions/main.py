@@ -567,6 +567,41 @@ def handle_summarize(req: https_fn.Request) -> dict:
 
 # --- /custody-report ----------------------------------------------------------
 
+def _case_profile_context(profile: dict) -> list[str]:
+    """Turn the WV custody intake answers into prompt context lines so the
+    extraction is tailored to the filer's specific case and form packet."""
+    phrases: list[str] = []
+    ms = profile.get("marital_status")
+    if ms == "married":
+        phrases.append("the parents are currently married (custody within a divorce)")
+    elif ms == "unmarried":
+        phrases.append("the parents are not married or are already divorced")
+    ct = profile.get("case_type")
+    if ct == "new":
+        phrases.append("this is a new custody/support case")
+    elif ct == "modification":
+        phrases.append("this is a modification of an existing order")
+    if profile.get("temporary_relief") == "yes":
+        phrases.append("temporary orders are being requested while the case is pending")
+    if profile.get("child_support") == "yes":
+        phrases.append("child support establishment or enforcement is involved")
+    if profile.get("address_safety") == "yes":
+        phrases.append("disclosing the filer's address could endanger their safety")
+    if profile.get("other_parent_address") == "unknown":
+        phrases.append("the other parent's address is unknown or out of state")
+    if profile.get("military") == "yes":
+        phrases.append("the other parent is on active military duty")
+    if not phrases:
+        return []
+    return [
+        "This analysis supports a West Virginia family-court custody filing.",
+        "Case profile: " + "; ".join(phrases) + ".",
+        "Organize and emphasize the evidence so it helps complete the required "
+        "WV forms — especially the Parenting Plan (parenting schedule and "
+        "decision-making) and, where support is involved, the Financial Statement.",
+    ]
+
+
 def _custody_breakdown(events: list[ChildcareEvent]) -> dict:
     """Derive custody-split counts and percentages directly from the cited
     childcare events. Shared time is split half to each parent; unclear is
@@ -738,6 +773,18 @@ def handle_custody(req: https_fn.Request) -> dict:
     if kids:
         context.append(f"The children are: {', '.join(kids)}.")
 
+    # WV custody intake answers — tailor the extraction to the filer's case.
+    profile: dict = {}
+    raw_profile = form.get("case_profile")
+    if raw_profile:
+        try:
+            parsed = json.loads(raw_profile)
+            if isinstance(parsed, dict):
+                profile = parsed
+        except (json.JSONDecodeError, TypeError):
+            profile = {}
+    context += _case_profile_context(profile)
+
     # 3. Split into windows. A small history runs as a single pass; a larger
     #    one is analyzed window-by-window (concurrently) and merged.
     chunks = _split_into_chunks(messages, CHUNK_CHARS)
@@ -777,6 +824,18 @@ def handle_custody(req: https_fn.Request) -> dict:
             "user_role": user_role,
             "children": kids,
             "transcript_truncated": len(messages) > TRANSCRIPT_CAP,
+            "case_profile": profile,
+            # Provenance — the settings used to produce this report.
+            "model": MODEL,
+            "jurisdiction": {
+                "state": (form.get("state") or "").strip(),
+                "county": (form.get("county") or "").strip(),
+            },
+            "contact": contact or None,
+            "date_filter": {
+                "start": form.get("start_date") or "",
+                "end": form.get("end_date") or "",
+            },
         },
         "custody_breakdown": _custody_breakdown(report.childcare_events),
         "report": report.model_dump(),

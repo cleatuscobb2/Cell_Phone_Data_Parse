@@ -22,6 +22,12 @@
 
 import ExcelJS from "exceljs";
 import { RESPONSIBILITY_CATEGORIES, RESPONSIBILITY_LABELS } from "./chartData.js";
+import {
+  requiredForms,
+  FORM_EVIDENCE,
+  EVIDENCE_LABELS,
+  INTAKE_QUESTIONS,
+} from "./custodyForms.js";
 
 const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Unclear" };
 const MISSED_KIND_LABEL = {
@@ -134,6 +140,14 @@ const SUGGESTION_COLS = [
   { header: "Related date", key: "related", width: 15 },
 ];
 
+const REQUIRED_FORM_COLS = [
+  { header: "Form number", key: "number", width: 14 },
+  { header: "Form title", key: "title", width: 50 },
+  { header: "Why it is required", key: "reason", width: 42 },
+  { header: "Purpose", key: "purpose", width: 46 },
+  { header: "Supporting evidence in this report", key: "evidence", width: 40 },
+];
+
 const LOG_COLS = [
   { header: "Timestamp", key: "timestamp", width: 18 },
   { header: "Source", key: "channel", width: 9 },
@@ -183,6 +197,15 @@ function buildSummarySheet(wb, meta, cb, report) {
   add("Messages analyzed", meta.total_messages);
   add("Conversations", meta.conversation_count);
   add("Analysis windows", meta.windows);
+  const jur = meta.jurisdiction || {};
+  add(
+    "Filing jurisdiction",
+    jur.county
+      ? `${jur.county} County, ${jur.state || "West Virginia"}`
+      : "Not specified",
+  );
+  add("Conversation scope", meta.contact || "All contacts");
+  add("Analysis model", meta.model || "claude-opus-4-7");
   if (meta.transcript_truncated) {
     add(
       "Note",
@@ -225,6 +248,18 @@ function buildSummarySheet(wb, meta, cb, report) {
     add(i === 0 ? "Limitations & caveats" : "", l),
   );
 
+  const profile = meta.case_profile || {};
+  if (Object.keys(profile).length > 0) {
+    blank();
+    INTAKE_QUESTIONS.forEach((q, i) => {
+      const opt = q.options.find((o) => o.value === profile[q.id]);
+      add(
+        i === 0 ? "WV custody intake answers" : "",
+        `${q.question}  —  ${opt ? opt.label : "Not answered"}`,
+      );
+    });
+  }
+
   styleSheet(sheet, 2);
   // Bold the field column, then restore the header styling it overwrote.
   sheet.getColumn("field").font = { bold: true, color: { argb: "FF334155" } };
@@ -248,6 +283,36 @@ export function buildCustodyWorkbook(data) {
   wb.created = new Date();
 
   buildSummarySheet(wb, meta, cb, report);
+
+  // Required WV filing forms — only when the case-profile intake was answered.
+  const caseProfile = meta.case_profile || {};
+  if (Object.keys(caseProfile).length > 0) {
+    const evidenceCount = {
+      childcare: (report.childcare_events || []).length,
+      missed: (report.missed_or_cancelled || []).length,
+      gaps: (report.communication_gaps || []).length,
+      responsibilities: (report.responsibility_events || []).length,
+      thirdparty: (report.third_party_statements || []).length,
+    };
+    dataSheet(
+      wb,
+      "Required Forms",
+      REQUIRED_FORM_COLS,
+      requiredForms(caseProfile).map((f) => ({
+        number: f.number,
+        title: f.title,
+        reason: f.reason,
+        purpose: f.purpose,
+        evidence: (FORM_EVIDENCE[f.id] || [])
+          .map((k) =>
+            evidenceCount[k] != null
+              ? `${EVIDENCE_LABELS[k]} (${evidenceCount[k]})`
+              : EVIDENCE_LABELS[k],
+          )
+          .join("; "),
+      })),
+    );
+  }
 
   dataSheet(
     wb,
