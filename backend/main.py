@@ -911,6 +911,9 @@ _IMAGE_MIME = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+# PDFs go through Claude's document content block — multi-page bills and
+# invoices are handled in one call without any pre-rasterization.
+_PDF_EXTS = (".pdf",)
 
 
 def _parse_financial_inputs(monthly_gross_income: str | None) -> dict:
@@ -1019,22 +1022,29 @@ def _extract_receipts(
     for i, (raw, name) in enumerate(files):
         ext = "." + (name.rsplit(".", 1)[-1].lower() if "." in name else "")
         mime = _IMAGE_MIME.get(ext)
-        if mime is None:
-            # Phase-1 takes images only; PDFs/HEIC etc. are skipped with a note.
+        b64 = base64.b64encode(raw).decode("ascii")
+        if mime is not None:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": b64},
+            })
+        elif ext in _PDF_EXTS:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": b64,
+                },
+            })
+        else:
+            # HEIC and other formats Claude doesn't accept yet — log and skip.
             content.append({
                 "type": "text",
                 "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
             })
-            continue
-        content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": mime,
-                "data": base64.b64encode(raw).decode("ascii"),
-            },
-        })
     try:
         response = client.messages.parse(
             model=MODEL,
