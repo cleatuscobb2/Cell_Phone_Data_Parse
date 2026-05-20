@@ -94,11 +94,13 @@ function MultiDropZone({ label, hint, accept, files, onChange }) {
 export default function FinancialUpload({
   receipts,
   paymentCsvs,
+  bankCsvs,
   onReceiptsChange,
   onPaymentCsvsChange,
+  onBankCsvsChange,
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-3 sm:grid-cols-3">
       <MultiDropZone
         label="Receipts / bills"
         hint="Images or PDFs"
@@ -112,6 +114,13 @@ export default function FinancialUpload({
         accept={CSV_ACCEPT}
         files={paymentCsvs}
         onChange={onPaymentCsvsChange}
+      />
+      <MultiDropZone
+        label="Bank / credit-card CSVs"
+        hint="Statement exports (any bank)"
+        accept={CSV_ACCEPT}
+        files={bankCsvs}
+        onChange={onBankCsvsChange}
       />
     </div>
   );

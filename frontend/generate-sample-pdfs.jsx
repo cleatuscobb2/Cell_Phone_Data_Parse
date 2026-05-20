@@ -210,10 +210,12 @@ function buildReport(spec) {
   });
 
   // Synthetic expenses — child-related transactions, mostly mother-paid
-  // (~80%), spread over the case period. Source-types alternate between
-  // receipts and payment_app rows so both R# and V# refs appear.
+  // (~80%), spread over the case period. Source-types rotate between
+  // receipts, payment_app rows, and bank entries so R#, V#, and B#
+  // refs all appear in the regenerated samples.
   let receiptIdx = 0;
   let venmoIdx = 0;
+  let bankIdx = 0;
   const expenses = Array.from({ length: spec.expenses || 0 }, (_, i) => {
     const tpl = pick(EXPENSE_TEMPLATES, i);
     const payer =
@@ -223,9 +225,14 @@ function buildReport(spec) {
     // Card lookup — mother's card ends in 4521, father's in 8734.
     const card =
       payer === "mother" ? "4521" : payer === "father" ? "8734" : "shared";
-    const source_type = tpl.source;
+    // Override one in four receipts to come from a bank statement, so
+    // the sample shows real B# refs alongside R# and V#.
+    const source_type =
+      tpl.source === "receipt" && i % 4 === 3 ? "bank" : tpl.source;
     const source_index =
-      source_type === "receipt" ? receiptIdx++ : venmoIdx++;
+      source_type === "receipt" ? receiptIdx++
+      : source_type === "payment_app" ? venmoIdx++
+      : bankIdx++;
     return {
       date: iso(start, end, (i + 0.5) / Math.max(1, spec.expenses)),
       amount,
@@ -235,7 +242,9 @@ function buildReport(spec) {
           ? payer === "father"
             ? "Venmo from Dave"
             : "Venmo from Me"
-          : `card ending ${card}`,
+          : source_type === "bank"
+            ? `bank: card ending ${card}`
+            : `card ending ${card}`,
       vendor: tpl.vendor,
       category: tpl.category,
       subcategory: tpl.subcategory,
@@ -243,7 +252,9 @@ function buildReport(spec) {
       quote:
         source_type === "payment_app"
           ? `${tpl.subcategory} — ${tpl.vendor}`
-          : `${tpl.vendor}  $${amount.toFixed(2)}`,
+          : source_type === "bank"
+            ? `${tpl.vendor.toUpperCase()} $${amount.toFixed(2)}`
+            : `${tpl.vendor}  $${amount.toFixed(2)}`,
       source_type,
       source_index,
     };

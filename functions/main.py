@@ -459,6 +459,41 @@ last-4 appears) — otherwise "unclear"
 Be conservative: omit anything you cannot ground in what the receipt shows."""
 
 
+BANK_CSV_PROMPT = """You are filtering and categorizing transactions from a \
+parent's BANK or CREDIT-CARD statement in a child-custody case.
+
+The user message provides:
+- the case context (user's role, other parent's name, children),
+- a card-lookup mapping from card-last-4 to "mother" or "father",
+- a JSON list of raw transactions; each has source_index, date, amount, \
+description, bank_category, and card_last4.
+
+Most bank/credit-card rows are NOT child-related (groceries, gas, \
+restaurants, the parent's own bills, subscriptions, mortgage / rent). \
+DROP those — be aggressive.
+
+Keep a row only when its description is clearly child-related:
+- Medical, dental, vision providers (Pediatric Dental, Children's \
+Hospital, dentist, orthodontist, optometrist)
+- School / education (tuition, PTA, school supplies if obvious from memo)
+- Camp / activities / sports / dance / scouts
+- Daycare / after-school care
+- Religious instruction
+- Children's motor-vehicle expenses (DMV, driving school)
+
+For each kept row emit an Expense with:
+- date, amount, vendor (extract a clean name from the description)
+- category, subcategory from the court-recognized categories
+- description (one factual sentence) and quote (the verbatim row description)
+- payer: from the card-lookup if card_last4 matches; otherwise "unclear"
+- payer_evidence: e.g. "card ending 4521 → mother", "no card_last4 in row"
+- source_type: "bank"
+- source_index: pass through from the row
+
+Be very conservative — when in doubt, omit. The cost of a false positive \
+(a non-child expense in the ledger) is much higher than missing one."""
+
+
 PAYMENT_CSV_PROMPT = """You are categorizing payment-app transactions \
 (Venmo, Zelle, Cash App, PayPal) from a parent in a child-custody case.
 
@@ -867,6 +902,7 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
 # Bounds for the receipt and payment-CSV batched Claude calls.
 MAX_RECEIPTS = 20
 MAX_CSV_ROWS = 200
+MAX_BANK_ROWS = 500
 
 _IMAGE_MIME = {
     ".jpg": "image/jpeg",
@@ -952,6 +988,111 @@ def _parse_payment_csv(raw: bytes, filename: str, base_index: int) -> list[dict]
             "source_file": filename,
         })
     return rows
+
+
+def _normalize_bank_date(s: str) -> str:
+    """Normalize MM/DD/YYYY, M/D/YY, or YYYY-MM-DD to YYYY-MM-DD."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    parts = s.split("/")
+    if len(parts) == 3:
+        m, d, y = parts
+        if len(y) == 2:
+            y = "20" + y if int(y) < 50 else "19" + y
+        try:
+            return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+        except ValueError:
+            return ""
+    return ""
+
+
+def _parse_bank_csv(raw: bytes, filename: str, base_index: int) -> list[dict]:
+    """Tolerant parse of a bank or credit-card statement CSV."""
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows: list[dict] = []
+    for row in reader:
+        lc = {k.lower().strip(): (v or "").strip() for k, v in row.items() if k}
+        date_str = _normalize_bank_date(
+            lc.get("transaction date") or lc.get("trans date") or
+            lc.get("posted date") or lc.get("post date") or
+            lc.get("date") or ""
+        )
+        amt_raw = lc.get("amount") or lc.get("debit") or lc.get("credit") or ""
+        amt_clean = "".join(c for c in amt_raw if c.isdigit() or c in ".-")
+        try:
+            amount = abs(float(amt_clean)) if amt_clean else 0.0
+        except ValueError:
+            amount = 0.0
+        description = (
+            lc.get("description") or lc.get("memo") or
+            lc.get("detail") or lc.get("payee") or ""
+        )
+        bank_category = lc.get("category") or ""
+        card_raw = lc.get("card no.") or lc.get("card number") or lc.get("card") or ""
+        last4 = "".join(c for c in card_raw if c.isdigit())[-4:] if card_raw else ""
+        if amount == 0 or not description:
+            continue
+        rows.append({
+            "source_index": base_index + len(rows),
+            "date": date_str,
+            "amount": amount,
+            "description": description,
+            "bank_category": bank_category,
+            "card_last4": last4,
+            "source_file": filename,
+        })
+    return rows
+
+
+def _extract_bank_expenses(
+    rows: list[dict],
+    card_lookup: dict[str, str],
+    case_context: list[str],
+) -> list[Expense]:
+    """Single batched Claude call that filters bank/CC rows to the
+    child-related transactions and categorizes them."""
+    if not rows:
+        return []
+    if len(rows) > MAX_BANK_ROWS:
+        raise ApiError(
+            413,
+            f"Too many bank-statement rows ({len(rows)}). Trim to "
+            f"{MAX_BANK_ROWS} or fewer (or upload a shorter date range).",
+        )
+    user_content = (
+        "\n".join(case_context)
+        + "\n\nCard-lookup mapping (last-4 → parent): "
+        + (json.dumps(card_lookup) if card_lookup else "(none provided)")
+        + f"\n\nHere are {len(rows)} bank / credit-card transactions in JSON. "
+        + "DROP rows that aren't clearly child-related — most won't be.\n\n"
+        + json.dumps(rows, indent=2, default=str)
+    )
+    try:
+        response = client().messages.parse(
+            model=MODEL,
+            max_tokens=8000,
+            system=[{
+                "type": "text",
+                "text": BANK_CSV_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": user_content}],
+            output_format=ExpenseList,
+        )
+    except anthropic.APIStatusError as e:
+        raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        raise ApiError(
+            413,
+            "More child-related bank rows than fit in one response. "
+            "Split the statement into smaller date ranges.",
+        )
+    parsed = response.parsed_output
+    return list(parsed.expenses) if parsed else []
 
 
 def _extract_receipts(
@@ -1161,7 +1302,15 @@ def handle_custody(req: https_fn.Request) -> dict:
             _parse_payment_csv(pf.read(), pf.filename or "", len(csv_rows))
         )
     payment_expenses = _extract_payment_expenses(csv_rows, cards, fin_context)
-    report.expenses = list(receipt_expenses) + list(payment_expenses)
+    bank_rows: list[dict] = []
+    for bf in req.files.getlist("bank_files"):
+        bank_rows.extend(
+            _parse_bank_csv(bf.read(), bf.filename or "", len(bank_rows))
+        )
+    bank_expenses = _extract_bank_expenses(bank_rows, cards, fin_context)
+    report.expenses = (
+        list(receipt_expenses) + list(payment_expenses) + list(bank_expenses)
+    )
 
     return {
         "meta": {

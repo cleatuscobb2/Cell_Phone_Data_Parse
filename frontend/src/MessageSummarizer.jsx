@@ -161,6 +161,7 @@ export default function MessageSummarizer() {
   const [caseProfile, setCaseProfile] = useState({});
   const [receiptFiles, setReceiptFiles] = useState([]);
   const [paymentCsvFiles, setPaymentCsvFiles] = useState([]);
+  const [bankCsvFiles, setBankCsvFiles] = useState([]);
   const [cardLookup, setCardLookup] = useState({});
   const [monthlyGrossIncome, setMonthlyGrossIncome] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -250,6 +251,7 @@ export default function MessageSummarizer() {
       }
       for (const f of receiptFiles) form.append("receipt_files", f);
       for (const f of paymentCsvFiles) form.append("payment_files", f);
+      for (const f of bankCsvFiles) form.append("bank_files", f);
       if (Object.keys(cardLookup).length > 0) {
         form.append("card_lookup", JSON.stringify(cardLookup));
       }
@@ -454,8 +456,10 @@ export default function MessageSummarizer() {
             <FinancialUpload
               receipts={receiptFiles}
               paymentCsvs={paymentCsvFiles}
+              bankCsvs={bankCsvFiles}
               onReceiptsChange={setReceiptFiles}
               onPaymentCsvsChange={setPaymentCsvFiles}
+              onBankCsvsChange={setBankCsvFiles}
             />
             <div className="mt-3 border-t border-slate-200 pt-2">
               <p className="text-xs font-medium text-slate-600">
