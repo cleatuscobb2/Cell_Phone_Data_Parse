@@ -13,6 +13,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
 import io
 import json
@@ -230,6 +231,11 @@ class CustodyNarrative(BaseModel):
     limitations: list[str]
 
 
+class ExpenseList(BaseModel):
+    """Container for a batched Claude extraction over many receipts / rows."""
+    expenses: list[Expense]
+
+
 # --- The prompt ---------------------------------------------------------------
 # Static, so it caches cleanly across requests (prompt caching keys on the
 # exact prefix bytes). The volatile conversation text goes in the user turn.
@@ -408,6 +414,65 @@ other limitations evident from the window summaries.
 
 Be neutral and factual. Do not invent events or numbers beyond what you are \
 given."""
+
+
+RECEIPTS_PROMPT = """You are extracting child-related expenses from receipts, \
+invoices, or bills uploaded by a parent in a child-custody case.
+
+The user message provides:
+- the case context (user's role, other parent's name, children),
+- a card-lookup mapping from card-last-4 to "mother" or "father",
+- one or more receipt images, in order, each labeled with its 0-based index.
+
+For each image, decide whether it shows a single transaction that is \
+plausibly child-related: medical, dental, eye care, school, camp, daycare, \
+activities, religious instruction, motor-vehicle, or children's employment.
+
+Skip non-child-related transactions (groceries, the parent's own bills, etc.) \
+— omit them entirely. Skip ambiguous receipts.
+
+For each child-related receipt emit one Expense with:
+- date: YYYY-MM-DD from the receipt
+- amount: total paid (positive USD)
+- vendor: merchant or service provider as shown
+- category: one of education, medical_dental_eye, religious, child_care, \
+childrens_employment, motor_vehicle, activities, other
+- subcategory: short specific label
+- description: one factual sentence
+- quote: a verbatim line from the receipt (e.g. "Pediatric Dental of WV — $342.50")
+- payer: from the card-lookup ("mother" or "father" if a recognized card \
+last-4 appears) — otherwise "unclear"
+- payer_evidence: how you decided (e.g. "card ending 4521 → mother", \
+"name on receipt: David Miller", "no payer evidence visible")
+- source_type: "receipt"
+- source_index: the 0-based image index from the input
+
+Be conservative: omit anything you cannot ground in what the receipt shows."""
+
+
+PAYMENT_CSV_PROMPT = """You are categorizing payment-app transactions \
+(Venmo, Zelle, Cash App, PayPal) from a parent in a child-custody case.
+
+The user message provides:
+- the case context (user's role, other parent's name, children),
+- a JSON list of raw transactions; each has source_index, date, amount, \
+sender, recipient, memo, and type.
+
+Decide whether each transaction is plausibly child-related (camp, daycare, \
+school, medical, activities, religious instruction, etc.). Skip rent, \
+takeout, parent-only spending, and ambiguous rows.
+
+For each child-related row emit an Expense with:
+- date, amount, vendor (the recipient or merchant name)
+- category, subcategory (use the same category enum as receipts)
+- description (one factual sentence) and quote (the memo verbatim)
+- payer: "mother" if the user sent it, "father" if the other parent did, \
+"shared" if memo indicates a split, "unclear" otherwise
+- payer_evidence: e.g. "Venmo from Sarah", "Zelle to Camp Pines from Dave"
+- source_type: "payment_app"
+- source_index: pass through from the row
+
+Be conservative — when in doubt, omit."""
 
 
 def _load_export(raw: bytes, filename: str) -> object:
@@ -833,10 +898,199 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
     )
 
 
+# --- Financial extraction -----------------------------------------------------
+# Bounds for the receipt and payment-CSV batched Claude calls.
+MAX_RECEIPTS = 20      # one vision call per request, capped for cost/latency
+MAX_CSV_ROWS = 200     # one categorize call across all CSVs combined
+
+# Image media types Claude vision accepts directly.
+_IMAGE_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _parse_card_lookup(raw: str | None) -> dict[str, str]:
+    """JSON-decode the card-lookup mapping {last4: 'mother'|'father'}."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in parsed.items():
+        k4 = "".join(c for c in str(k) if c.isdigit())[-4:]
+        if len(k4) == 4 and v in ("mother", "father"):
+            out[k4] = v
+    return out
+
+
+def _parse_payment_csv(raw: bytes, filename: str, base_index: int) -> list[dict]:
+    """Parse a payment-app CSV into a list of raw transaction dicts. Tolerant
+    of Venmo / Zelle / Cash App / PayPal column naming."""
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    rows: list[dict] = []
+    for row in reader:
+        # Normalize key access (case-insensitive).
+        lc = {k.lower().strip(): (v or "").strip() for k, v in row.items() if k}
+        date_str = (
+            lc.get("datetime") or lc.get("date") or
+            lc.get("transaction date") or lc.get("when") or ""
+        )[:10]
+        amt_raw = (
+            lc.get("amount (total)") or lc.get("amount") or
+            lc.get("total") or lc.get("net amount") or "0"
+        )
+        amt_clean = "".join(c for c in amt_raw if c.isdigit() or c in ".-")
+        try:
+            amount = abs(float(amt_clean)) if amt_clean else 0.0
+        except ValueError:
+            amount = 0.0
+        sender = lc.get("from") or lc.get("sender") or lc.get("sent from") or ""
+        recipient = lc.get("to") or lc.get("recipient") or lc.get("sent to") or ""
+        memo = (
+            lc.get("note") or lc.get("memo") or lc.get("description") or
+            lc.get("subject") or ""
+        )
+        tx_type = lc.get("type") or lc.get("transaction type") or ""
+        if amount == 0 and not memo:
+            continue
+        rows.append({
+            "source_index": base_index + len(rows),
+            "date": date_str,
+            "amount": amount,
+            "sender": sender,
+            "recipient": recipient,
+            "memo": memo,
+            "type": tx_type,
+            "source_file": filename,
+        })
+    return rows
+
+
+def _extract_receipts(
+    files: list[tuple[bytes, str]],
+    card_lookup: dict[str, str],
+    case_context: list[str],
+) -> list[Expense]:
+    """Single batched Claude vision call across all uploaded receipts."""
+    if not files:
+        return []
+    if len(files) > MAX_RECEIPTS:
+        raise HTTPException(
+            413,
+            f"Too many receipts in one request ({len(files)}). "
+            f"Upload at most {MAX_RECEIPTS} at a time.",
+        )
+    content: list[dict] = [{
+        "type": "text",
+        "text": (
+            "\n".join(case_context)
+            + "\n\nCard-lookup mapping (last-4 → parent): "
+            + (json.dumps(card_lookup) if card_lookup else "(none provided)")
+            + f"\n\nReceipts follow ({len(files)} document"
+            + ("s" if len(files) != 1 else "")
+            + "), each labeled with its 0-based source_index:"
+        ),
+    }]
+    for i, (raw, name) in enumerate(files):
+        ext = "." + (name.rsplit(".", 1)[-1].lower() if "." in name else "")
+        mime = _IMAGE_MIME.get(ext)
+        if mime is None:
+            # Phase-1 takes images only; PDFs/HEIC etc. are skipped with a note.
+            content.append({
+                "type": "text",
+                "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
+            })
+            continue
+        content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": mime,
+                "data": base64.b64encode(raw).decode("ascii"),
+            },
+        })
+    try:
+        response = client.messages.parse(
+            model=MODEL,
+            max_tokens=8000,
+            system=[{
+                "type": "text",
+                "text": RECEIPTS_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": content}],
+            output_format=ExpenseList,
+        )
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        raise HTTPException(
+            413,
+            "More receipts than fit in one response. Upload fewer receipts and retry.",
+        )
+    parsed = response.parsed_output
+    return list(parsed.expenses) if parsed else []
+
+
+def _extract_payment_expenses(
+    rows: list[dict],
+    card_lookup: dict[str, str],
+    case_context: list[str],
+) -> list[Expense]:
+    """Single batched Claude call that categorizes payment-app rows."""
+    if not rows:
+        return []
+    if len(rows) > MAX_CSV_ROWS:
+        raise HTTPException(
+            413,
+            f"Too many payment-app rows ({len(rows)}). Trim to {MAX_CSV_ROWS} or fewer.",
+        )
+    user_content = (
+        "\n".join(case_context)
+        + "\n\nCard-lookup mapping (last-4 → parent): "
+        + (json.dumps(card_lookup) if card_lookup else "(none provided)")
+        + f"\n\nHere are {len(rows)} payment-app transactions in JSON:\n\n"
+        + json.dumps(rows, indent=2, default=str)
+    )
+    try:
+        response = client.messages.parse(
+            model=MODEL,
+            max_tokens=8000,
+            system=[{
+                "type": "text",
+                "text": PAYMENT_CSV_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": user_content}],
+            output_format=ExpenseList,
+        )
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        raise HTTPException(
+            413,
+            "More payment rows than fit in one response. Split into smaller files.",
+        )
+    parsed = response.parsed_output
+    return list(parsed.expenses) if parsed else []
+
+
 @app.post("/custody-report")
 async def custody_report(
     file: UploadFile | None = File(None),
     email_file: UploadFile | None = File(None),
+    receipt_files: list[UploadFile] | None = File(None),
+    payment_files: list[UploadFile] | None = File(None),
     user_email: str | None = Form(None),
     other_parent: str = Form(...),
     user_role: str = Form("mother"),
@@ -847,6 +1101,7 @@ async def custody_report(
     contact: str | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
+    card_lookup: str | None = Form(None),
 ) -> dict:
     """Extract a dated, source-quoted custody-relevant event log from a
     message history. The model EXTRACTS — the cited messages are the
@@ -922,6 +1177,28 @@ async def custody_report(
             *(run_window(i, ch) for i, ch in enumerate(chunks))
         )
         report = await asyncio.to_thread(_combine_reports, list(partials))
+
+    # 4. Financial extraction — child-related expenses from receipts and
+    #    payment-app CSVs. Skipped entirely when no files were uploaded.
+    cards = _parse_card_lookup(card_lookup)
+    fin_context = list(context) + [
+        "When deciding `payer`, use the card-lookup above to resolve a "
+        "card-last-4 to the parent. If no card or sender info is visible, "
+        "set payer to 'unclear'.",
+    ]
+    receipt_payload: list[tuple[bytes, str]] = []
+    for rf in receipt_files or []:
+        receipt_payload.append((await rf.read(), rf.filename or ""))
+    receipt_expenses = await asyncio.to_thread(
+        _extract_receipts, receipt_payload, cards, fin_context,
+    )
+    csv_rows: list[dict] = []
+    for pf in payment_files or []:
+        csv_rows.extend(_parse_payment_csv(await pf.read(), pf.filename or "", len(csv_rows)))
+    payment_expenses = await asyncio.to_thread(
+        _extract_payment_expenses, csv_rows, cards, fin_context,
+    )
+    report.expenses = list(receipt_expenses) + list(payment_expenses)
 
     return {
         "meta": {

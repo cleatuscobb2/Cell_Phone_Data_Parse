@@ -31,6 +31,8 @@ import CustodyReport from "./CustodyReport.jsx";
 import LoadingAnimation from "./LoadingAnimation.jsx";
 import JurisdictionSelect from "./JurisdictionSelect.jsx";
 import CustodyIntake from "./CustodyIntake.jsx";
+import CardLookup from "./CardLookup.jsx";
+import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
 import { getIdToken } from "./firebase.js";
 
@@ -157,6 +159,9 @@ export default function MessageSummarizer() {
   const [caseState, setCaseState] = useState("");
   const [caseCounty, setCaseCounty] = useState("");
   const [caseProfile, setCaseProfile] = useState({});
+  const [receiptFiles, setReceiptFiles] = useState([]);
+  const [paymentCsvFiles, setPaymentCsvFiles] = useState([]);
+  const [cardLookup, setCardLookup] = useState({});
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -241,6 +246,11 @@ export default function MessageSummarizer() {
       if (caseCounty) form.append("county", caseCounty);
       if (Object.keys(caseProfile).length > 0) {
         form.append("case_profile", JSON.stringify(caseProfile));
+      }
+      for (const f of receiptFiles) form.append("receipt_files", f);
+      for (const f of paymentCsvFiles) form.append("payment_files", f);
+      if (Object.keys(cardLookup).length > 0) {
+        form.append("card_lookup", JSON.stringify(cardLookup));
       }
     } else {
       endpoint = "/summarize";
@@ -422,6 +432,34 @@ export default function MessageSummarizer() {
               ? `A custody-filing intake for ${caseState} isn't available yet.`
               : "Select a state above to answer its custody-filing intake."}
           </p>
+        )}
+
+        {/* Financial documents (optional) — receipts and payment-app
+            exports. Each one becomes an Expense in the report. The
+            card-lookup mapping lets us attribute a receipt to a parent. */}
+        {isCustody && (
+          <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
+            <p className="text-xs font-medium text-slate-600">
+              Financial documents (optional)
+            </p>
+            <p className="mb-2 text-xs text-slate-400">
+              Drop receipts and Venmo / Zelle / Cash App / PayPal exports to
+              add a Financial Contribution section with totals over time and
+              cross-validation against the message claims.
+            </p>
+            <FinancialUpload
+              receipts={receiptFiles}
+              paymentCsvs={paymentCsvFiles}
+              onReceiptsChange={setReceiptFiles}
+              onPaymentCsvsChange={setPaymentCsvFiles}
+            />
+            <div className="mt-3 border-t border-slate-200 pt-2">
+              <p className="text-xs font-medium text-slate-600">
+                Card lookup (optional)
+              </p>
+              <CardLookup lookup={cardLookup} onChange={setCardLookup} />
+            </div>
+          </div>
         )}
 
         {/* Scope: contact (+ search terms in summary mode) */}
