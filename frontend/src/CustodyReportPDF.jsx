@@ -39,6 +39,7 @@ import {
   buildFinancialSummary,
   buildFinancialCrossValidation,
 } from "./financial.js";
+import { buildSca106Worksheet } from "./scaFc106.js";
 
 const usd = (n) =>
   `$${Number(n || 0).toLocaleString("en-US", {
@@ -767,6 +768,12 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     shared: c.totals.shared,
     unclear: c.totals.unclear,
   }));
+
+  // WV SCA-FC-106 worksheet — only when WV is the filing state.
+  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
+  const sca106 = isWV
+    ? buildSca106Worksheet(expenses || [], cb, meta.financial_inputs || {})
+    : null;
   const RADAR_SERIES = [
     { key: "mother", color: PDF_COLORS.mother, label: `With ${meta.user_role}` },
     { key: "father", color: PDF_COLORS.father, label: "With father" },
@@ -1167,6 +1174,197 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                     </Text>
                   </View>
                 ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {sca106 && (
+          <View wrap={false}>
+            <Text style={styles.h2}>
+              WV Financial Statement (SCA-FC-106) — Worksheet
+            </Text>
+            <Text style={styles.caption}>
+              Child-expense lines auto-populated from the receipts and
+              payments — averaged across {sca106.period.months} month
+              {sca106.period.months === 1 ? "" : "s"}
+              {sca106.period.start && sca106.period.end
+                ? ` (${sca106.period.start} to ${sca106.period.end})`
+                : ""}
+              . Personal info, deductions, assets, debts, and general
+              monthly expenses stay for you / your attorney to complete on
+              the official form.
+            </Text>
+            {/* Column headers */}
+            <View
+              style={{
+                flexDirection: "row",
+                borderBottomWidth: 0.5,
+                borderBottomColor: "#cbd5e1",
+                paddingBottom: 2,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ flex: 2.4, fontFamily: "Helvetica-Bold" }}>
+                SCA-FC-106 line
+              </Text>
+              <Text
+                style={{ width: 70, fontFamily: "Helvetica-Bold", textAlign: "right" }}
+              >
+                Monthly
+              </Text>
+              <Text
+                style={{
+                  width: 65,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                  color: PDF_COLORS.mother,
+                }}
+              >
+                {meta.user_role}
+              </Text>
+              <Text
+                style={{
+                  width: 65,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                  color: PDF_COLORS.father,
+                }}
+              >
+                father
+              </Text>
+              <Text
+                style={{ width: 60, fontFamily: "Helvetica-Bold", textAlign: "right" }}
+              >
+                Share
+              </Text>
+              <Text
+                style={{ width: 70, fontFamily: "Helvetica-Bold", textAlign: "right" }}
+              >
+                Period
+              </Text>
+            </View>
+            {sca106.lines.map((row) => (
+              <View
+                key={row.key}
+                style={{ flexDirection: "row", marginBottom: 1.5 }}
+              >
+                <View style={{ flex: 2.4, paddingRight: 4 }}>
+                  <Text>{row.line}</Text>
+                  <Text style={{ fontSize: 6.5, color: "#94a3b8" }}>
+                    {row.categories.join(" · ")} · {row.count} expense
+                    {row.count === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                <Text style={{ width: 70, textAlign: "right" }}>
+                  {usd(row.monthly_total)}
+                </Text>
+                <Text
+                  style={{ width: 65, textAlign: "right", color: PDF_COLORS.mother }}
+                >
+                  {usd(row.monthly_mother)}
+                </Text>
+                <Text
+                  style={{ width: 65, textAlign: "right", color: PDF_COLORS.father }}
+                >
+                  {usd(row.monthly_father)}
+                </Text>
+                <Text
+                  style={{ width: 60, textAlign: "right", fontSize: 7.5 }}
+                >
+                  <Text style={{ color: PDF_COLORS.mother }}>
+                    {row.mother_share_pct}%
+                  </Text>
+                  <Text style={{ color: "#cbd5e1" }}> / </Text>
+                  <Text style={{ color: PDF_COLORS.father }}>
+                    {row.father_share_pct}%
+                  </Text>
+                </Text>
+                <Text style={{ width: 70, textAlign: "right", color: "#475569" }}>
+                  {usd(row.total)}
+                </Text>
+              </View>
+            ))}
+            {/* Total row */}
+            <View
+              style={{
+                flexDirection: "row",
+                borderTopWidth: 1,
+                borderTopColor: "#475569",
+                paddingTop: 2,
+                marginTop: 1,
+              }}
+            >
+              <Text
+                style={{ flex: 2.4, fontFamily: "Helvetica-Bold" }}
+              >
+                Total monthly child expenses
+              </Text>
+              <Text
+                style={{
+                  width: 70,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                }}
+              >
+                {usd(sca106.totals.monthly_child_expenses)}
+              </Text>
+              <Text
+                style={{
+                  width: 65,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                  color: PDF_COLORS.mother,
+                }}
+              >
+                {usd(sca106.totals.mother_monthly)}
+              </Text>
+              <Text
+                style={{
+                  width: 65,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                  color: PDF_COLORS.father,
+                }}
+              >
+                {usd(sca106.totals.father_monthly)}
+              </Text>
+              <Text
+                style={{ width: 60, textAlign: "right", color: "#94a3b8" }}
+              >
+                —
+              </Text>
+              <Text
+                style={{
+                  width: 70,
+                  fontFamily: "Helvetica-Bold",
+                  textAlign: "right",
+                }}
+              >
+                {usd(sca106.totals.annual_child_expenses)}
+              </Text>
+            </View>
+            {sca106.income && (
+              <View style={{ marginTop: 6 }}>
+                <Text style={styles.caption}>Income context</Text>
+                <PdfKV
+                  label="Monthly gross income (entered)"
+                  value={usd(sca106.income.monthly_gross)}
+                />
+                <PdfKV
+                  label="Child expenses as % of monthly gross"
+                  value={`${sca106.child_expenses_as_pct_of_income}%`}
+                />
+                <PdfKV
+                  label={`Paid by ${meta.user_role} as % of monthly gross`}
+                  value={`${
+                    Math.round(
+                      (sca106.totals.mother_monthly /
+                        sca106.income.monthly_gross) *
+                        1000,
+                    ) / 10
+                  }%`}
+                />
               </View>
             )}
           </View>

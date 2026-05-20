@@ -16,6 +16,7 @@
  *   - Timeline            — every dated event in one chronological list
  *   - Expense Ledger      — every child-related financial transaction (when receipts uploaded)
  *   - Financial Findings  — claim/receipt cross-validation (when applicable)
+ *   - SCA-FC-106 Worksheet — WV Financial Statement child-expense lines (WV only)
  *   - Message Log         — the full chronological transcript
  *
  * Every evidence row carries the fields needed to trace and present it:
@@ -39,6 +40,7 @@ import {
   buildFinancialSummary,
   buildFinancialCrossValidation,
 } from "./financial.js";
+import { buildSca106Worksheet } from "./scaFc106.js";
 
 const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Unclear" };
 const MISSED_KIND_LABEL = {
@@ -201,6 +203,18 @@ const FIN_FINDING_COLS = [
   { header: "Description", key: "description", width: 84 },
 ];
 
+const SCA106_COLS = [
+  { header: "SCA-FC-106 line", key: "line", width: 50 },
+  { header: "Categories", key: "categories", width: 38 },
+  { header: "Period total", key: "total", width: 14 },
+  { header: "Monthly total", key: "monthly_total", width: 14 },
+  { header: "Monthly — mother", key: "monthly_mother", width: 16 },
+  { header: "Monthly — father", key: "monthly_father", width: 16 },
+  { header: "Mother share %", key: "mother_share_pct", width: 14 },
+  { header: "Father share %", key: "father_share_pct", width: 14 },
+  { header: "Expenses", key: "count", width: 11 },
+];
+
 // --- Row mappers --------------------------------------------------------------
 
 const respRow = (r, link) => ({
@@ -353,6 +367,12 @@ export function buildCustodyWorkbook(data) {
   const finFindings = fin.hasExpenses
     ? buildFinancialCrossValidation(expenses, report.responsibility_events || [])
     : [];
+
+  // SCA-FC-106 worksheet — only when WV is the filing state.
+  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
+  const sca106 = isWV
+    ? buildSca106Worksheet(expenses, cb, meta.financial_inputs || {})
+    : null;
 
   buildSummarySheet(wb, meta, cb, report, fin);
 
@@ -556,6 +576,58 @@ export function buildCustodyWorkbook(data) {
         })),
       );
     }
+  }
+
+  // WV SCA-FC-106 Financial Statement worksheet — child-expense lines
+  // averaged across the case period, per-parent split.
+  if (sca106) {
+    const rows = sca106.lines.map((r) => ({
+      line: r.line,
+      categories: r.categories.join("; "),
+      total: r.total,
+      monthly_total: r.monthly_total,
+      monthly_mother: r.monthly_mother,
+      monthly_father: r.monthly_father,
+      mother_share_pct: r.mother_share_pct,
+      father_share_pct: r.father_share_pct,
+      count: r.count,
+    }));
+    rows.push({
+      line: "Total monthly child expenses",
+      categories: "",
+      total: sca106.totals.annual_child_expenses,
+      monthly_total: sca106.totals.monthly_child_expenses,
+      monthly_mother: sca106.totals.mother_monthly,
+      monthly_father: sca106.totals.father_monthly,
+      mother_share_pct: "",
+      father_share_pct: "",
+      count: "",
+    });
+    if (sca106.income) {
+      rows.push({
+        line: "Monthly gross income (entered)",
+        categories: "",
+        total: "",
+        monthly_total: sca106.income.monthly_gross,
+        monthly_mother: "",
+        monthly_father: "",
+        mother_share_pct: "",
+        father_share_pct: "",
+        count: "",
+      });
+      rows.push({
+        line: "Child expenses as % of monthly gross income",
+        categories: "",
+        total: "",
+        monthly_total: sca106.child_expenses_as_pct_of_income,
+        monthly_mother: "",
+        monthly_father: "",
+        mother_share_pct: "",
+        father_share_pct: "",
+        count: "",
+      });
+    }
+    dataSheet(wb, "SCA-FC-106 Worksheet", SCA106_COLS, rows);
   }
 
   dataSheet(

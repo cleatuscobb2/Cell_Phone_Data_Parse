@@ -49,6 +49,7 @@ import {
   buildFinancialSummary,
   buildFinancialCrossValidation,
 } from "./financial.js";
+import { buildSca106Worksheet } from "./scaFc106.js";
 import { refExpenses } from "./messageRefs.js";
 
 const usd = (n) =>
@@ -345,6 +346,14 @@ export default function CustodyReport({ data }) {
         report.responsibility_events || [],
       )
     : [];
+
+  // WV SCA-FC-106 Financial Statement worksheet — child-related expense
+  // averages by category, plus optional % of income. Only renders when WV
+  // is the filing state and there's something to populate.
+  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
+  const sca106 = isWV
+    ? buildSca106Worksheet(expensesRefed, cb, meta.financial_inputs || {})
+    : null;
 
   // WV filing-form packet — derived from the intake answers echoed in meta.
   const caseProfile = meta.case_profile || {};
@@ -958,6 +967,141 @@ export default function CustodyReport({ data }) {
               </ul>
             </div>
           )}
+        </Panel>
+      )}
+
+      {sca106 && (
+        <Panel
+          title="WV Financial Statement (SCA-FC-106) Worksheet"
+          subtitle={`Child-expense lines auto-populated from the receipts and payments — averaged across ${sca106.period.months} months`}
+        >
+          <p className="mb-3 text-xs text-slate-500">
+            The other SCA-FC-106 lines (personal info, deductions, assets,
+            debts, general monthly expenses) stay for you and your attorney
+            to complete on the official form. These are the figures that are
+            hard to compute by hand.
+          </p>
+          <div className="mb-3 overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead className="border-b border-slate-200">
+                <tr className="text-left text-slate-500">
+                  <th className="py-1.5 pr-3">SCA-FC-106 line</th>
+                  <th className="py-1.5 pr-3 text-right">Monthly total</th>
+                  <th
+                    className="py-1.5 pr-3 text-right"
+                    style={{ color: PARENT_COLORS.mother }}
+                  >
+                    {meta.user_role}
+                  </th>
+                  <th
+                    className="py-1.5 pr-3 text-right"
+                    style={{ color: PARENT_COLORS.father }}
+                  >
+                    father
+                  </th>
+                  <th className="py-1.5 pr-3 text-right">Share</th>
+                  <th className="py-1.5 pr-3 text-right">Period total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sca106.lines.map((row) => (
+                  <tr key={row.key} className="border-b border-slate-100">
+                    <td className="py-1.5 pr-3">
+                      <p className="font-medium text-slate-700">{row.line}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {row.categories.join(" · ")} · {row.count} expense
+                        {row.count === 1 ? "" : "s"}
+                      </p>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right font-medium text-slate-800">
+                      {usd(row.monthly_total)}
+                    </td>
+                    <td
+                      className="py-1.5 pr-3 text-right"
+                      style={{ color: PARENT_COLORS.mother }}
+                    >
+                      {usd(row.monthly_mother)}
+                    </td>
+                    <td
+                      className="py-1.5 pr-3 text-right"
+                      style={{ color: PARENT_COLORS.father }}
+                    >
+                      {usd(row.monthly_father)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-slate-600">
+                      <span style={{ color: PARENT_COLORS.mother }}>
+                        {row.mother_share_pct}%
+                      </span>
+                      {" / "}
+                      <span style={{ color: PARENT_COLORS.father }}>
+                        {row.father_share_pct}%
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-slate-600">
+                      {usd(row.total)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
+                  <td className="py-1.5 pr-3">Total monthly child expenses</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {usd(sca106.totals.monthly_child_expenses)}
+                  </td>
+                  <td
+                    className="py-1.5 pr-3 text-right"
+                    style={{ color: PARENT_COLORS.mother }}
+                  >
+                    {usd(sca106.totals.mother_monthly)}
+                  </td>
+                  <td
+                    className="py-1.5 pr-3 text-right"
+                    style={{ color: PARENT_COLORS.father }}
+                  >
+                    {usd(sca106.totals.father_monthly)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-slate-500">—</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {usd(sca106.totals.annual_child_expenses)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {sca106.income && (
+            <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3">
+              <p className="text-xs font-semibold text-indigo-800">
+                Income context (from the form)
+              </p>
+              <p className="mt-1 text-xs text-indigo-900">
+                Monthly gross income: <strong>{usd(sca106.income.monthly_gross)}</strong>
+              </p>
+              <p className="text-xs text-indigo-900">
+                Monthly child-related expenses are{" "}
+                <strong>{sca106.child_expenses_as_pct_of_income}%</strong>{" "}
+                of monthly gross income.
+              </p>
+              <p className="text-xs text-indigo-900">
+                Of that, {meta.user_role} is paying{" "}
+                <strong>
+                  {usd(sca106.totals.mother_monthly)}/month
+                </strong>{" "}
+                ({Math.round(
+                  (sca106.totals.mother_monthly /
+                    sca106.income.monthly_gross) *
+                    1000,
+                ) / 10}
+                % of monthly gross).
+              </p>
+            </div>
+          )}
+          <p className="mt-3 text-[11px] text-slate-400">
+            Averages span the case period
+            {sca106.period.start && sca106.period.end
+              ? ` (${sca106.period.start} to ${sca106.period.end})`
+              : ""}
+            . Recent twelve-month averages may differ; counsel can adjust
+            using the Expense Ledger.
+          </p>
         </Panel>
       )}
 

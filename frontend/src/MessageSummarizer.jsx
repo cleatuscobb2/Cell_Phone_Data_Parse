@@ -162,6 +162,7 @@ export default function MessageSummarizer() {
   const [receiptFiles, setReceiptFiles] = useState([]);
   const [paymentCsvFiles, setPaymentCsvFiles] = useState([]);
   const [cardLookup, setCardLookup] = useState({});
+  const [monthlyGrossIncome, setMonthlyGrossIncome] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -251,6 +252,9 @@ export default function MessageSummarizer() {
       for (const f of paymentCsvFiles) form.append("payment_files", f);
       if (Object.keys(cardLookup).length > 0) {
         form.append("card_lookup", JSON.stringify(cardLookup));
+      }
+      if (monthlyGrossIncome.trim()) {
+        form.append("monthly_gross_income", monthlyGrossIncome.trim());
       }
     } else {
       endpoint = "/summarize";
@@ -459,6 +463,31 @@ export default function MessageSummarizer() {
               </p>
               <CardLookup lookup={cardLookup} onChange={setCardLookup} />
             </div>
+            {stateIntake && (
+              <div className="mt-3 border-t border-slate-200 pt-2">
+                <p className="text-xs font-medium text-slate-600">
+                  Monthly gross income (optional — for SCA-FC-106)
+                </p>
+                <p className="text-xs text-slate-400">
+                  The only income field — used to compute child expenses as
+                  a percentage of income on the WV Financial Statement
+                  worksheet. Everything else on SCA-FC-106 stays for the
+                  user / attorney to fill in by hand.
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-sm text-slate-500">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="e.g. 6500"
+                    value={monthlyGrossIncome}
+                    onChange={(e) => setMonthlyGrossIncome(e.target.value)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-slate-500">per month</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -913,6 +913,22 @@ _IMAGE_MIME = {
 }
 
 
+def _parse_financial_inputs(monthly_gross_income: str | None) -> dict:
+    """Normalize the optional SCA-FC-106 income field. Only the user's
+    monthly gross income is collected; the rest of the WV Financial
+    Statement is filled in by hand."""
+    out: dict = {}
+    if monthly_gross_income:
+        cleaned = "".join(c for c in monthly_gross_income if c.isdigit() or c == ".")
+        try:
+            v = float(cleaned)
+            if v > 0:
+                out["monthly_gross_income"] = v
+        except ValueError:
+            pass
+    return out
+
+
 def _parse_card_lookup(raw: str | None) -> dict[str, str]:
     """JSON-decode the card-lookup mapping {last4: 'mother'|'father'}."""
     if not raw:
@@ -1102,6 +1118,7 @@ async def custody_report(
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
     card_lookup: str | None = Form(None),
+    monthly_gross_income: str | None = Form(None),
 ) -> dict:
     """Extract a dated, source-quoted custody-relevant event log from a
     message history. The model EXTRACTS — the cited messages are the
@@ -1211,6 +1228,9 @@ async def custody_report(
             "children": kids,
             "transcript_truncated": len(messages) > TRANSCRIPT_CAP,
             "case_profile": profile,
+            # Optional income context for the SCA-FC-106 worksheet; the
+            # rest of that form is filled in by the user / attorney.
+            "financial_inputs": _parse_financial_inputs(monthly_gross_income),
             # Provenance — the settings used to produce this report.
             "model": MODEL,
             "jurisdiction": {
