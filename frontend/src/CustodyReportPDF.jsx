@@ -35,6 +35,16 @@ import {
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
 import { buildEvidenceRefs } from "./messageRefs.js";
+import {
+  buildFinancialSummary,
+  buildFinancialCrossValidation,
+} from "./financial.js";
+
+const usd = (n) =>
+  `$${Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 const styles = StyleSheet.create({
   page: {
@@ -714,7 +724,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   const timelinePlotW = landscape ? 600 : PLOT_W;
   const timeline = buildYearlyTimelineModels(report, transcript);
   // Ref-annotated transcript + a linker from each event to its source message.
-  const { refed, link } = buildEvidenceRefs(data);
+  const { refed, expenses, link } = buildEvidenceRefs(data);
   const caseProfile = meta.case_profile || {};
   const requiredFormList = Object.keys(caseProfile).length
     ? requiredForms(caseProfile)
@@ -743,6 +753,20 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   );
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
+
+  // Financial Contribution — totals + cross-validation. Empty by default.
+  const fin = buildFinancialSummary(expenses || []);
+  const finFindings = fin.hasExpenses
+    ? buildFinancialCrossValidation(expenses, report.responsibility_events || [])
+    : [];
+  // Flatten by_category for PdfHBar (which wants top-level series keys).
+  const finCategoryRows = fin.by_category.map((c) => ({
+    full: c.label,
+    mother: c.totals.mother,
+    father: c.totals.father,
+    shared: c.totals.shared,
+    unclear: c.totals.unclear,
+  }));
   const RADAR_SERIES = [
     { key: "mother", color: PDF_COLORS.mother, label: `With ${meta.user_role}` },
     { key: "father", color: PDF_COLORS.father, label: "With father" },
@@ -1022,6 +1046,131 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             />
           )}
         />
+
+        {fin.hasExpenses && (
+          <View>
+            <Text style={styles.h2}>Financial Contribution</Text>
+            <Text style={styles.caption}>
+              {usd(fin.total)} in child-related expenses
+              {fin.period ? ` · ${fin.period.start} to ${fin.period.end}` : ""}
+              {" · "}{expenses.length} document{expenses.length === 1 ? "" : "s"}
+            </Text>
+            <View style={styles.statRow} wrap={false}>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{usd(fin.total)}</Text>
+                <Text style={styles.statLabel}>Total tracked</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text
+                  style={[styles.statValue, { color: PDF_COLORS.mother }]}
+                >
+                  {usd(fin.grand_total.mother)}
+                </Text>
+                <Text style={styles.statLabel}>Paid by {meta.user_role}</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text
+                  style={[styles.statValue, { color: PDF_COLORS.father }]}
+                >
+                  {usd(fin.grand_total.father)}
+                </Text>
+                <Text style={styles.statLabel}>Paid by father</Text>
+              </View>
+              <View style={[styles.stat, { marginRight: 0 }]}>
+                <Text style={styles.statValue}>{expenses.length}</Text>
+                <Text style={styles.statLabel}>Receipts / payments</Text>
+              </View>
+            </View>
+            {finCategoryRows.length > 0 && (
+              <View>
+                <Text style={styles.caption}>
+                  Dollars spent per court-recognized category
+                </Text>
+                <PdfHBar
+                  data={finCategoryRows}
+                  labelKey="full"
+                  series={RESP_SERIES}
+                />
+              </View>
+            )}
+            {fin.by_year.length > 1 && (
+              <View wrap={false} style={{ marginTop: 6 }}>
+                <Text style={styles.caption}>Year-over-year totals</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    borderBottomWidth: 0.5,
+                    borderBottomColor: "#cbd5e1",
+                    paddingBottom: 2,
+                    marginBottom: 2,
+                  }}
+                >
+                  <Text style={{ width: 60, fontFamily: "Helvetica-Bold" }}>
+                    Year
+                  </Text>
+                  <Text
+                    style={{
+                      width: 100,
+                      fontFamily: "Helvetica-Bold",
+                      color: PDF_COLORS.mother,
+                    }}
+                  >
+                    With {meta.user_role}
+                  </Text>
+                  <Text
+                    style={{
+                      width: 100,
+                      fontFamily: "Helvetica-Bold",
+                      color: PDF_COLORS.father,
+                    }}
+                  >
+                    With father
+                  </Text>
+                  <Text style={{ flex: 1, fontFamily: "Helvetica-Bold" }}>
+                    Total
+                  </Text>
+                </View>
+                {fin.by_year.map((y) => (
+                  <View
+                    key={y.year}
+                    style={{ flexDirection: "row", marginBottom: 1 }}
+                  >
+                    <Text style={{ width: 60 }}>{y.year}</Text>
+                    <Text style={{ width: 100, color: PDF_COLORS.mother }}>
+                      {usd(y.mother)}
+                    </Text>
+                    <Text style={{ width: 100, color: PDF_COLORS.father }}>
+                      {usd(y.father)}
+                    </Text>
+                    <Text style={{ flex: 1 }}>{usd(y.grand_total)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            {finFindings.length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.caption}>
+                  Cross-validation findings — {finFindings.length}
+                </Text>
+                {finFindings.map((f, i) => (
+                  <View key={i} style={styles.bullet} wrap={false}>
+                    <Text style={styles.bulletDot}>▲</Text>
+                    <Text style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                        {f.kind === "claim_without_receipt"
+                          ? "Claim without receipt"
+                          : "Receipt without claim"}
+                      </Text>
+                      {" · "}{f.date}
+                      {f.refs.length > 0 ? ` [${f.refs.join(", ")}]` : ""}
+                      {" — "}{f.description}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         <Section
           title="Third-Party Statements"

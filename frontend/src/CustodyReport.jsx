@@ -14,6 +14,8 @@ import {
   CartesianGrid,
   LabelList,
   Legend,
+  Line,
+  LineChart,
   PolarAngleAxis,
   PolarGrid,
   PolarRadiusAxis,
@@ -43,6 +45,17 @@ import {
   FORM_EVIDENCE,
   EVIDENCE_LABELS,
 } from "./custodyForms.js";
+import {
+  buildFinancialSummary,
+  buildFinancialCrossValidation,
+} from "./financial.js";
+import { refExpenses } from "./messageRefs.js";
+
+const usd = (n) =>
+  `$${Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 const PARENT_COLORS = {
   mother: "#6366f1",
@@ -320,6 +333,18 @@ export default function CustodyReport({ data }) {
   );
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
+
+  // Financial Contribution — totals + cross-validation against the
+  // ResponsibilityEvent list. Empty by default; rendered only when the
+  // user uploaded receipts or payment-app exports.
+  const expensesRefed = refExpenses(report.expenses || []);
+  const fin = buildFinancialSummary(expensesRefed);
+  const finFindings = fin.hasExpenses
+    ? buildFinancialCrossValidation(
+        expensesRefed,
+        report.responsibility_events || [],
+      )
+    : [];
 
   // WV filing-form packet — derived from the intake answers echoed in meta.
   const caseProfile = meta.case_profile || {};
@@ -760,6 +785,181 @@ export default function CustodyReport({ data }) {
           </>
         )}
       </Panel>
+
+      {fin.hasExpenses && (
+        <Panel
+          title="Financial Contribution"
+          subtitle={`Total of ${usd(fin.total)} in child-related expenses${
+            fin.period ? ` from ${fin.period.start} to ${fin.period.end}` : ""
+          }`}
+        >
+          {/* Headline totals — same look as the stat cards on the PDF. */}
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Total tracked</p>
+              <p className="text-lg font-bold text-slate-800">{usd(fin.total)}</p>
+            </div>
+            <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3">
+              <p className="text-xs text-indigo-600">Paid by {meta.user_role}</p>
+              <p className="text-lg font-bold text-indigo-800">
+                {usd(fin.grand_total.mother)}
+              </p>
+            </div>
+            <div className="rounded-md border border-orange-200 bg-orange-50 p-3">
+              <p className="text-xs text-orange-600">Paid by father</p>
+              <p className="text-lg font-bold text-orange-800">
+                {usd(fin.grand_total.father)}
+              </p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-white p-3">
+              <p className="text-xs text-slate-500">Receipts / payments</p>
+              <p className="text-lg font-bold text-slate-800">
+                {expensesRefed.length}
+              </p>
+            </div>
+          </div>
+
+          {/* Spend share by court category. */}
+          {fin.by_category.length > 0 && (
+            <div className="mb-6">
+              <ChartCaption>
+                Dollars spent per category —{" "}
+                <span style={{ color: PARENT_COLORS.mother }}>{meta.user_role}</span>
+                {" vs. "}
+                <span style={{ color: PARENT_COLORS.father }}>father</span>
+              </ChartCaption>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(200, fin.by_category.length * 38 + 52)}
+              >
+                <BarChart
+                  data={fin.by_category}
+                  layout="vertical"
+                  margin={{ left: 4, right: 60 }}
+                >
+                  <CartesianGrid {...GRID} vertical horizontal={false} />
+                  <XAxis
+                    {...AXIS}
+                    type="number"
+                    tickFormatter={(v) => `$${v.toLocaleString()}`}
+                  />
+                  <YAxis
+                    {...AXIS}
+                    tick={{ fontSize: 10, fill: "#475569" }}
+                    type="category"
+                    dataKey="label"
+                    width={150}
+                  />
+                  <Tooltip
+                    {...TOOLTIP}
+                    formatter={(v) => usd(v)}
+                  />
+                  <Legend wrapperStyle={LEGEND} />
+                  <Bar
+                    dataKey="totals.mother"
+                    stackId="$"
+                    fill={PARENT_COLORS.mother}
+                    name={`With ${meta.user_role}`}
+                    barSize={17}
+                  />
+                  <Bar
+                    dataKey="totals.father"
+                    stackId="$"
+                    fill={PARENT_COLORS.father}
+                    name="With father"
+                    barSize={17}
+                  />
+                  <Bar
+                    dataKey="totals.shared"
+                    stackId="$"
+                    fill={PARENT_COLORS.shared}
+                    name="Shared"
+                    barSize={17}
+                  />
+                  <Bar
+                    dataKey="totals.unclear"
+                    stackId="$"
+                    fill={PARENT_COLORS.unclear}
+                    name="Unclear"
+                    barSize={17}
+                    radius={[0, 3, 3, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Cumulative contribution over time — running totals per parent. */}
+          {fin.cumulative.length > 1 && (
+            <div className="mb-6">
+              <ChartCaption>
+                Cumulative contribution over time — running total per parent
+              </ChartCaption>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart
+                  data={fin.cumulative}
+                  margin={{ left: 4, right: 16, top: 8, bottom: 8 }}
+                >
+                  <CartesianGrid {...GRID} />
+                  <XAxis {...AXIS} dataKey="date" minTickGap={40} />
+                  <YAxis
+                    {...AXIS}
+                    tickFormatter={(v) => `$${v.toLocaleString()}`}
+                  />
+                  <Tooltip {...TOOLTIP} formatter={(v) => usd(v)} />
+                  <Legend wrapperStyle={LEGEND} />
+                  <Line
+                    type="monotone"
+                    dataKey="mother"
+                    stroke={PARENT_COLORS.mother}
+                    strokeWidth={2}
+                    dot={false}
+                    name={`With ${meta.user_role}`}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="father"
+                    stroke={PARENT_COLORS.father}
+                    strokeWidth={2}
+                    dot={false}
+                    name="With father"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Cross-validation findings — claims without receipts, receipts
+              without claims. */}
+          {finFindings.length > 0 && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold text-amber-800">
+                Cross-validation findings — {finFindings.length}
+              </p>
+              <p className="mb-2 text-[11px] text-amber-700">
+                Inconsistencies between what the messages said and what the
+                financial documents prove. Worth following up with counsel.
+              </p>
+              <ul className="space-y-1.5 max-h-72 overflow-y-auto">
+                {finFindings.map((f, i) => (
+                  <li key={i} className="text-xs text-amber-900">
+                    <span className="font-semibold">
+                      {f.kind === "claim_without_receipt"
+                        ? "Claim without receipt"
+                        : "Receipt without claim"}
+                    </span>{" "}
+                    · {f.date}
+                    {f.refs.length > 0 && (
+                      <span className="text-amber-600"> [{f.refs.join(", ")}]</span>
+                    )}
+                    <span className="block text-amber-800">{f.description}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Panel>
+      )}
 
       <Panel
         title="Third-Party Statements"

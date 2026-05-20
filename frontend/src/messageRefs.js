@@ -1,15 +1,22 @@
 /**
- * messageRefs.js — stable reference IDs for the uploaded messages.
+ * messageRefs.js — stable reference IDs for every uploaded document.
  *
- * Every message gets a short, human-readable ref: "T1", "T2", … for text
- * messages and "E1", "E2", … for emails, numbered in chronological order
- * within each channel. Extracted events are then linked back to the message
- * they were quoted from.
+ * Every message and every financial document gets a short, human-readable
+ * ref, numbered in chronological order within its source type:
+ *   T1, T2, …  text messages
+ *   E1, E2, …  emails
+ *   R1, R2, …  receipts / invoices / bills
+ *   V1, V2, …  payment-app transactions (Venmo, Zelle, Cash App, PayPal)
+ *   B1, B2, …  bank / credit-card transactions
  *
- * These refs let the PDF and Excel reports trace a timeline marker or an
- * evidence item to the exact source text or email — the static stand-in for
- * the web report's hover detail, which print/spreadsheet output can't show.
+ * Extracted events and expenses are linked back to the document they came
+ * from by these refs. They let the PDF and Excel reports trace a timeline
+ * marker, an evidence item, or an expense row to its exact source — the
+ * static stand-in for the web report's hover detail, which print and
+ * spreadsheet output can't show.
  */
+
+const EXPENSE_PREFIX = { receipt: "R", payment_app: "V", bank: "B" };
 
 /** Annotate a transcript so each message carries a `ref` ("T14", "E3"). */
 export function refMessages(transcript = []) {
@@ -19,6 +26,19 @@ export function refMessages(transcript = []) {
     count[channel] += 1;
     return { ...m, ref: (channel === "email" ? "E" : "T") + count[channel] };
   });
+}
+
+/** Build the ref string for an expense from its source_type + source_index. */
+export function expenseRef(expense) {
+  if (!expense) return null;
+  const prefix = EXPENSE_PREFIX[expense.source_type];
+  if (!prefix) return null;
+  return prefix + (Number(expense.source_index ?? 0) + 1);
+}
+
+/** Annotate an expense list so each carries a `ref` ("R3", "V12"). */
+export function refExpenses(expenses = []) {
+  return expenses.map((e) => ({ ...e, ref: expenseRef(e) }));
 }
 
 /** Normalize text for tolerant verbatim matching. */
@@ -53,13 +73,16 @@ export function sourceRef(quote, date, refed) {
 }
 
 /**
- * Convenience for report renderers: the ref-annotated transcript plus a
- * `link(event)` that returns the source-message ref for any quoted event.
+ * Convenience for report renderers: a ref-annotated transcript, a
+ * ref-annotated expense list, and a `link(event)` that returns the
+ * source-message ref for any quoted event.
  */
 export function buildEvidenceRefs(data) {
   const refed = refMessages((data && data.transcript) || []);
+  const expenses = refExpenses((data && data.report && data.report.expenses) || []);
   return {
     refed,
+    expenses,
     link: (event) =>
       event ? sourceRef(event.quote, event.date, refed) : null,
   };

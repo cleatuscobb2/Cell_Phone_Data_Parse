@@ -125,6 +125,38 @@ const TX_BODIES = [
   "Did you sign the school form yet?",
 ];
 
+// Synthetic expense templates — vendor, category, subcategory, typical
+// amount range. The generator draws from these to build a realistic
+// financial ledger across the case period.
+const EXPENSE_TEMPLATES = [
+  { vendor: "Pediatric Dental of WV", category: "medical_dental_eye",
+    subcategory: "Dental cleaning", min: 120, max: 290, source: "receipt" },
+  { vendor: "Charleston Family Medicine", category: "medical_dental_eye",
+    subcategory: "Office visit copay", min: 25, max: 95, source: "receipt" },
+  { vendor: "MountainView Eye Center", category: "medical_dental_eye",
+    subcategory: "Eye exam", min: 80, max: 165, source: "receipt" },
+  { vendor: "Lincoln Elementary PTA", category: "education",
+    subcategory: "School fees", min: 35, max: 90, source: "payment_app" },
+  { vendor: "Kanawha County Schools", category: "education",
+    subcategory: "Tuition / fees", min: 200, max: 750, source: "receipt" },
+  { vendor: "Target — school supplies", category: "education",
+    subcategory: "Books & clothes", min: 45, max: 215, source: "receipt" },
+  { vendor: "Camp Mountain Pines", category: "activities",
+    subcategory: "Summer camp deposit", min: 250, max: 900, source: "receipt" },
+  { vendor: "Charleston Soccer Club", category: "activities",
+    subcategory: "Sports registration", min: 95, max: 240, source: "payment_app" },
+  { vendor: "Step Up Dance Studio", category: "activities",
+    subcategory: "Competition dance", min: 110, max: 320, source: "payment_app" },
+  { vendor: "Brightside Childcare", category: "child_care",
+    subcategory: "After-school care", min: 180, max: 420, source: "receipt" },
+  { vendor: "St. Anne's Parish", category: "religious",
+    subcategory: "Religious instruction", min: 30, max: 85, source: "payment_app" },
+  { vendor: "WV DMV", category: "motor_vehicle",
+    subcategory: "Permit / license fees", min: 25, max: 60, source: "receipt" },
+  { vendor: "Driving Academy of WV", category: "motor_vehicle",
+    subcategory: "Driving lessons", min: 80, max: 240, source: "receipt" },
+];
+
 function buildReport(spec) {
   const start = Date.UTC(spec.startYear, 0, 1);
   const end = Date.UTC(spec.endYear, 0, 1);
@@ -174,6 +206,46 @@ function buildReport(spec) {
       quote: item.quote,
       sender: "Me",
       channel: channelOf(i),
+    };
+  });
+
+  // Synthetic expenses — child-related transactions, mostly mother-paid
+  // (~80%), spread over the case period. Source-types alternate between
+  // receipts and payment_app rows so both R# and V# refs appear.
+  let receiptIdx = 0;
+  let venmoIdx = 0;
+  const expenses = Array.from({ length: spec.expenses || 0 }, (_, i) => {
+    const tpl = pick(EXPENSE_TEMPLATES, i);
+    const payer =
+      i % 11 === 0 ? "father" : i % 17 === 0 ? "shared" : "mother";
+    const amount =
+      Math.round((tpl.min + ((i * 37) % 100) / 100 * (tpl.max - tpl.min)) * 100) / 100;
+    // Card lookup — mother's card ends in 4521, father's in 8734.
+    const card =
+      payer === "mother" ? "4521" : payer === "father" ? "8734" : "shared";
+    const source_type = tpl.source;
+    const source_index =
+      source_type === "receipt" ? receiptIdx++ : venmoIdx++;
+    return {
+      date: iso(start, end, (i + 0.5) / Math.max(1, spec.expenses)),
+      amount,
+      payer,
+      payer_evidence:
+        source_type === "payment_app"
+          ? payer === "father"
+            ? "Venmo from Dave"
+            : "Venmo from Me"
+          : `card ending ${card}`,
+      vendor: tpl.vendor,
+      category: tpl.category,
+      subcategory: tpl.subcategory,
+      description: `${tpl.subcategory} at ${tpl.vendor}`,
+      quote:
+        source_type === "payment_app"
+          ? `${tpl.subcategory} — ${tpl.vendor}`
+          : `${tpl.vendor}  $${amount.toFixed(2)}`,
+      source_type,
+      source_index,
     };
   });
 
@@ -288,6 +360,7 @@ function buildReport(spec) {
       responsibility_events: responsibility,
       third_party_statements: thirdParty,
       suggestions,
+      expenses,
       sentiment_overview:
         "The tone of co-parenting communication is largely logistical and " +
         "frequently strained, with recurring friction around the father's " +
@@ -309,19 +382,19 @@ const SPECS = [
   {
     file: "custody-report-3yr.pdf",
     startYear: 2021, endYear: 2024, windows: 3, totalMessages: 21900,
-    childcare: 28, missed: 30, resp: 20, gaps: 10, third: 8,
+    childcare: 28, missed: 30, resp: 20, gaps: 10, third: 8, expenses: 35,
     transcript: 600, truncated: false,
   },
   {
     file: "custody-report-5yr.pdf",
     startYear: 2019, endYear: 2024, windows: 6, totalMessages: 54800,
-    childcare: 55, missed: 62, resp: 40, gaps: 18, third: 14,
+    childcare: 55, missed: 62, resp: 40, gaps: 18, third: 14, expenses: 70,
     transcript: 1300, truncated: false,
   },
   {
     file: "custody-report-7yr-max.pdf",
     startYear: 2017, endYear: 2024, windows: 12, totalMessages: 153000,
-    childcare: 110, missed: 132, resp: 76, gaps: 32, third: 24,
+    childcare: 110, missed: 132, resp: 76, gaps: 32, third: 24, expenses: 140,
     transcript: 2000, truncated: true,
   },
 ];

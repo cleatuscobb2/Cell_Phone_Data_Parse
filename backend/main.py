@@ -176,6 +176,38 @@ class Suggestion(BaseModel):
     related_date: str  # the date it relates to, or "" if none
 
 
+class Expense(BaseModel):
+    """A single child-related financial transaction sourced from a receipt,
+    invoice, bank statement, or payment-app export. Paired with the
+    `quote` (the verbatim line that grounds it) and `source_type` +
+    `source_index` so the frontend can render a stable reference
+    (R# for receipts/bills, V# for payment-app rows, B# for bank rows)
+    that lines up with the timeline and the appendix.
+    """
+    date: str
+    amount: float                     # USD, positive
+    payer: Literal["mother", "father", "shared", "unclear"]
+    payer_evidence: str               # how we know — "card ending 4521", "Venmo from Sarah", etc.
+    vendor: str
+    # Same court-recognized categories as ResponsibilityEvent so totals
+    # roll up alongside the existing responsibility-share charts.
+    category: Literal[
+        "education",
+        "medical_dental_eye",
+        "religious",
+        "child_care",
+        "childrens_employment",
+        "motor_vehicle",
+        "activities",
+        "other",
+    ]
+    subcategory: str
+    description: str
+    quote: str                        # verbatim text from the source document
+    source_type: Literal["receipt", "payment_app", "bank"]
+    source_index: int                 # 0-based position within its source-type list
+
+
 class CustodyReport(BaseModel):
     overview: str
     breakdown_basis: str
@@ -185,6 +217,7 @@ class CustodyReport(BaseModel):
     responsibility_events: list[ResponsibilityEvent]
     third_party_statements: list[ThirdPartyStatement]
     suggestions: list[Suggestion]
+    expenses: list[Expense] = []
     sentiment_overview: str
     limitations: list[str]
 

@@ -14,6 +14,8 @@
  *   - Third-Party         — corroborating statements from others
  *   - Suggestions         — case-building action items
  *   - Timeline            — every dated event in one chronological list
+ *   - Expense Ledger      — every child-related financial transaction (when receipts uploaded)
+ *   - Financial Findings  — claim/receipt cross-validation (when applicable)
  *   - Message Log         — the full chronological transcript
  *
  * Every evidence row carries the fields needed to trace and present it:
@@ -33,6 +35,10 @@ import {
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
 import { buildEvidenceRefs } from "./messageRefs.js";
+import {
+  buildFinancialSummary,
+  buildFinancialCrossValidation,
+} from "./financial.js";
 
 const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Unclear" };
 const MISSED_KIND_LABEL = {
@@ -175,6 +181,26 @@ const TIMELINE_COLS = [
   { header: "Verbatim quote", key: "quote", width: 62 },
 ];
 
+const EXPENSE_COLS = [
+  { header: "Source ref", key: "ref", width: 11 },
+  { header: "Date", key: "date", width: 13 },
+  { header: "Amount (USD)", key: "amount", width: 14 },
+  { header: "Paid by", key: "payer", width: 11 },
+  { header: "How we know", key: "payer_evidence", width: 28 },
+  { header: "Vendor", key: "vendor", width: 28 },
+  { header: "Court category", key: "category", width: 25 },
+  { header: "Subcategory", key: "subcategory", width: 22 },
+  { header: "Description", key: "description", width: 48 },
+  { header: "Verbatim quote", key: "quote", width: 56 },
+];
+
+const FIN_FINDING_COLS = [
+  { header: "Finding", key: "kind", width: 26 },
+  { header: "Date", key: "date", width: 13 },
+  { header: "Refs", key: "refs", width: 12 },
+  { header: "Description", key: "description", width: 84 },
+];
+
 // --- Row mappers --------------------------------------------------------------
 
 const respRow = (r, link) => ({
@@ -189,8 +215,14 @@ const respRow = (r, link) => ({
   sender: r.sender || "",
 });
 
+const FIN_FINDING_LABEL = {
+  claim_without_receipt: "Claim without receipt",
+  receipt_without_claim: "Receipt without claim",
+  amount_mismatch: "Amount mismatch",
+};
+
 /** Build the Summary tab — case context and headline counts. */
-function buildSummarySheet(wb, meta, cb, report) {
+function buildSummarySheet(wb, meta, cb, report, fin) {
   const sheet = wb.addWorksheet("Summary");
   sheet.columns = [
     { header: "Field", key: "field", width: 34 },
@@ -259,6 +291,21 @@ function buildSummarySheet(wb, meta, cb, report) {
     (report.third_party_statements || []).length,
   );
   add("Suggestions recorded", (report.suggestions || []).length);
+  if (fin && fin.hasExpenses) {
+    add("Expenses tracked", (report.expenses || []).length);
+    blank();
+    add("Financial total tracked", `$${fin.total.toFixed(2)}`);
+    add("Financial total — mother", `$${fin.grand_total.mother.toFixed(2)}`);
+    add("Financial total — father", `$${fin.grand_total.father.toFixed(2)}`);
+    add("Financial total — shared", `$${fin.grand_total.shared.toFixed(2)}`);
+    add("Financial total — unclear", `$${fin.grand_total.unclear.toFixed(2)}`);
+    if (fin.period) {
+      add(
+        "Financial period covered",
+        `${fin.period.start} to ${fin.period.end}`,
+      );
+    }
+  }
   blank();
   add("Overview", report.overview);
   add("Custody breakdown basis", report.breakdown_basis);
@@ -298,9 +345,16 @@ export function buildCustodyWorkbook(data) {
   wb.created = new Date();
 
   // Ref-annotated transcript + a linker from each event to its source message.
-  const { refed, link } = buildEvidenceRefs(data);
+  // `expenses` carries R#/V# refs assigned from source_type + source_index.
+  const { refed, expenses, link } = buildEvidenceRefs(data);
 
-  buildSummarySheet(wb, meta, cb, report);
+  // Financial summary + cross-validation against responsibility events.
+  const fin = buildFinancialSummary(expenses);
+  const finFindings = fin.hasExpenses
+    ? buildFinancialCrossValidation(expenses, report.responsibility_events || [])
+    : [];
+
+  buildSummarySheet(wb, meta, cb, report, fin);
 
   // Required WV filing forms — only when the case-profile intake was answered.
   const caseProfile = meta.case_profile || {};
@@ -468,6 +522,41 @@ export function buildCustodyWorkbook(data) {
     })),
   ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   dataSheet(wb, "Timeline", TIMELINE_COLS, timelineRows);
+
+  // Expense Ledger — every dollar transaction tied to a child, with its
+  // source ref so each row can be traced to the underlying document.
+  if (fin.hasExpenses) {
+    dataSheet(
+      wb,
+      "Expense Ledger",
+      EXPENSE_COLS,
+      expenses.map((e) => ({
+        ref: e.ref || "",
+        date: e.date || "",
+        amount: Number(e.amount || 0),
+        payer: partyLabel(e.payer),
+        payer_evidence: e.payer_evidence || "",
+        vendor: e.vendor || "",
+        category: RESPONSIBILITY_LABELS[e.category] || "Other",
+        subcategory: e.subcategory || "",
+        description: e.description || "",
+        quote: e.quote || "",
+      })),
+    );
+    if (finFindings.length > 0) {
+      dataSheet(
+        wb,
+        "Financial Findings",
+        FIN_FINDING_COLS,
+        finFindings.map((f) => ({
+          kind: FIN_FINDING_LABEL[f.kind] || f.kind,
+          date: f.date || "",
+          refs: (f.refs || []).join(", "),
+          description: f.description || "",
+        })),
+      );
+    }
+  }
 
   dataSheet(
     wb,
