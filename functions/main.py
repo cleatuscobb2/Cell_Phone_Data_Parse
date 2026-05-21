@@ -694,7 +694,7 @@ def handle_summarize(req: https_fn.Request) -> dict:
             ConversationSummary,
             system_text=SYSTEM_PROMPT,
             user_content=user_content,
-            max_tokens=16000,
+            max_tokens=32000,
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
@@ -842,15 +842,18 @@ def _structured_extract(
     *,
     system_text: str,
     user_content,
-    max_tokens: int = 16000,
+    max_tokens: int = 32000,
     use_thinking: bool = False,  # kept for signature compatibility — unused
 ) -> BaseModel:
-    """Call Claude with the output model's JSON schema as a NON-strict tool.
+    """Call Claude with the output model's JSON schema as a NON-strict tool,
+    via the streaming API so we can request a much larger max_tokens budget
+    (the non-streaming path caps at ~16k, which truncates dense windows
+    mid-JSON and produces a 413).
 
     Thinking is incompatible with a forced tool_choice on this model, so
     it is not enabled here."""
     _ = use_thinking  # noqa: F841
-    response = client().messages.create(
+    with client().messages.stream(
         model=MODEL,
         max_tokens=max_tokens,
         system=[{
@@ -865,7 +868,8 @@ def _structured_extract(
             "input_schema": output_model.model_json_schema(),
         }],
         tool_choice={"type": "tool", "name": "submit"},
-    )
+    ) as stream:
+        response = stream.get_final_message()
     if response.stop_reason == "max_tokens":
         raise ApiError(
             413,
@@ -897,7 +901,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
             CustodyExtraction,
             system_text=CUSTODY_PROMPT,
             user_content=user_content,
-            max_tokens=16000,
+            max_tokens=32000,
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")

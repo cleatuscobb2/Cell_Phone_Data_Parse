@@ -733,7 +733,7 @@ async def summarize(
             ConversationSummary,
             system_text=SYSTEM_PROMPT,
             user_content=user_content,
-            max_tokens=16000,
+            max_tokens=32000,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
@@ -882,22 +882,23 @@ def _structured_extract(
     *,
     system_text: str,
     user_content,
-    max_tokens: int = 16000,
+    max_tokens: int = 32000,
     use_thinking: bool = False,  # kept for signature compatibility — unused
 ) -> BaseModel:
-    """Call Claude with the output model's JSON schema as a NON-strict tool.
+    """Call Claude with the output model's JSON schema as a NON-strict tool,
+    via the streaming API so we can request a much larger max_tokens budget
+    (the non-streaming API path caps at ~16k, which truncates dense windows
+    mid-JSON and produces a 413).
 
-    messages.parse(output_format=...) compiles a strict grammar from the
-    schema; for our nested CustodyExtraction shape that grammar exceeds
-    Anthropic's compiled-size limit. A non-strict tool gives the model the
-    same schema as guidance without the hard grammar — we Pydantic-validate
-    the tool_use payload after.
+    The schema is passed as a tool definition — non-strict, since strict
+    mode compiles a grammar that exceeds Anthropic's size limit for our
+    nested shape. We Pydantic-validate the tool_use payload after.
 
     Note: `thinking` is incompatible with a forced tool_choice on this
     model, so it is not enabled here — quality with Opus on these
     extractions is already strong without it."""
     _ = use_thinking  # noqa: F841 — signature kept stable for callers
-    response = client.messages.create(
+    with client.messages.stream(
         model=MODEL,
         max_tokens=max_tokens,
         system=[{
@@ -912,7 +913,8 @@ def _structured_extract(
             "input_schema": output_model.model_json_schema(),
         }],
         tool_choice={"type": "tool", "name": "submit"},
-    )
+    ) as stream:
+        response = stream.get_final_message()
     if response.stop_reason == "max_tokens":
         raise HTTPException(
             413,
@@ -945,7 +947,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
             CustodyExtraction,
             system_text=CUSTODY_PROMPT,
             user_content=user_content,
-            max_tokens=16000,
+            max_tokens=32000,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
