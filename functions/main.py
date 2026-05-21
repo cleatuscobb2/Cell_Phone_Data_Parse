@@ -222,7 +222,10 @@ class Expense(BaseModel):
     insurance_paid: float | None = None    # what the insurer covered
 
 
-class CustodyReport(BaseModel):
+class CustodyExtraction(BaseModel):
+    """Output shape for the per-window LLM extraction. Excludes the
+    financial `expenses` field — that comes from a separate extractor —
+    to keep Claude's compiled-grammar size under the API limit."""
     overview: str
     breakdown_basis: str
     childcare_events: list[ChildcareEvent]
@@ -231,9 +234,14 @@ class CustodyReport(BaseModel):
     responsibility_events: list[ResponsibilityEvent]
     third_party_statements: list[ThirdPartyStatement]
     suggestions: list[Suggestion]
-    expenses: list[Expense] = []
     sentiment_overview: str
     limitations: list[str]
+
+
+class CustodyReport(CustodyExtraction):
+    """API response shape — what the frontend receives. Adds the
+    `expenses` list populated by the financial extractors."""
+    expenses: list[Expense] = []
 
 
 class CustodyNarrative(BaseModel):
@@ -820,7 +828,7 @@ def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
 
 
 def _extract_chunk(chunk_messages: list, context_lines: list[str],
-                   window_note: str) -> CustodyReport:
+                   window_note: str) -> CustodyExtraction:
     """Run the custody extraction over one window."""
     condensed = to_condensed_string(chunk_messages)
     user_content = "\n".join(context_lines) + (
@@ -839,7 +847,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=[{"role": "user", "content": user_content}],
-            output_format=CustodyReport,
+            output_format=CustodyExtraction,
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
@@ -863,7 +871,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
     return report
 
 
-def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
+def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
     """Merge windowed reports: concatenate the event lists, then re-synthesize
     the narrative across all windows with a final reduce call."""
     def sort_by(items, attr):
@@ -1377,11 +1385,15 @@ def handle_custody(req: https_fn.Request) -> dict:
         )
 
     if len(chunks) == 1:
-        report = _extract_chunk(
+        # _extract_chunk returns CustodyExtraction (no expenses field);
+        # promote it to CustodyReport so the financial extractors below can
+        # attach their results.
+        extraction = _extract_chunk(
             chunks[0], context, "This transcript covers the full requested history."
         )
+        report = CustodyReport(**extraction.model_dump())
     else:
-        def run_window(indexed_chunk: tuple[int, list]) -> CustodyReport:
+        def run_window(indexed_chunk: tuple[int, list]) -> CustodyExtraction:
             idx, chunk = indexed_chunk
             note = (
                 f"This is time window {idx + 1} of {len(chunks)}, covering "

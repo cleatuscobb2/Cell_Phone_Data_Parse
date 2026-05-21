@@ -213,7 +213,13 @@ class Expense(BaseModel):
     insurance_paid: float | None = None    # what the insurer covered
 
 
-class CustodyReport(BaseModel):
+class CustodyExtraction(BaseModel):
+    """Output shape for the per-window LLM extraction. Includes everything
+    Claude is asked to extract from messages — but NOT the financial
+    `expenses`, which come from a separate extractor over uploaded
+    receipts / EOBs / payment-app CSVs / bank CSVs. Keeping Expense out
+    of the structured-output grammar avoids hitting Claude's compiled-
+    grammar size limit on this already-large schema."""
     overview: str
     breakdown_basis: str
     childcare_events: list[ChildcareEvent]
@@ -222,9 +228,14 @@ class CustodyReport(BaseModel):
     responsibility_events: list[ResponsibilityEvent]
     third_party_statements: list[ThirdPartyStatement]
     suggestions: list[Suggestion]
-    expenses: list[Expense] = []
     sentiment_overview: str
     limitations: list[str]
+
+
+class CustodyReport(CustodyExtraction):
+    """The API response shape — what the frontend receives. Adds the
+    `expenses` list populated by the financial extractors."""
+    expenses: list[Expense] = []
 
 
 class CustodyNarrative(BaseModel):
@@ -856,7 +867,7 @@ def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
 
 
 def _extract_chunk(chunk_messages: list, context_lines: list[str],
-                   window_note: str) -> CustodyReport:
+                   window_note: str) -> CustodyExtraction:
     """Run the custody extraction over one window. Synchronous — invoked via
     asyncio.to_thread so windows can be analyzed concurrently."""
     condensed = to_condensed_string(chunk_messages)
@@ -876,7 +887,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=[{"role": "user", "content": user_content}],
-            output_format=CustodyReport,
+            output_format=CustodyExtraction,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
@@ -900,7 +911,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
     return report
 
 
-def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
+def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
     """Merge windowed reports: concatenate the event lists, then re-synthesize
     the narrative across all windows with a final reduce call. Synchronous —
     invoked via asyncio.to_thread."""
@@ -1445,16 +1456,20 @@ async def custody_report(
         )
 
     if len(chunks) == 1:
-        report = await asyncio.to_thread(
+        # _extract_chunk returns a CustodyExtraction (no expenses field);
+        # promote it to CustodyReport so the financial extractors below can
+        # attach their results.
+        extraction = await asyncio.to_thread(
             _extract_chunk,
             chunks[0],
             context,
             "This transcript covers the full requested history.",
         )
+        report = CustodyReport(**extraction.model_dump())
     else:
         sem = asyncio.Semaphore(CHUNK_CONCURRENCY)
 
-        async def run_window(idx: int, chunk: list) -> CustodyReport:
+        async def run_window(idx: int, chunk: list) -> CustodyExtraction:
             note = (
                 f"This is time window {idx + 1} of {len(chunks)}, covering "
                 f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
