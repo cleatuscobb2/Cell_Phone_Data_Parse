@@ -108,25 +108,27 @@ class ConversationSummary(BaseModel):
 # Every extracted item carries a verbatim `quote` and a `date` so it can be
 # traced back to — and verified against — the original message.
 
+# The enum-shaped fields below are typed as plain `str` to keep Claude's
+# compiled structured-output grammar under its size limit. The allowed
+# values are spelled out in CUSTODY_PROMPT and re-enforced by
+# _normalize_extraction() after parsing.
+
 class ChildcareEvent(BaseModel):
     date: str
-    parent: Literal["mother", "father", "shared", "unclear"]
+    parent: str    # mother | father | shared | unclear
     description: str
     quote: str
     sender: str
-    channel: Literal["text", "email", "unclear"]  # source of the cited message
+    channel: str   # text | email | unclear
 
 
 class MissedVisit(BaseModel):
     date: str
-    kind: Literal[
-        "cancellation", "no_show", "reschedule_request", "late",
-        "declined_time", "other",
-    ]
+    kind: str      # cancellation | no_show | reschedule_request | late | declined_time | other
     description: str
     quote: str
     sender: str
-    channel: Literal["text", "email", "unclear"]
+    channel: str
 
 
 class CommunicationGap(BaseModel):
@@ -138,43 +140,30 @@ class CommunicationGap(BaseModel):
 
 class ResponsibilityEvent(BaseModel):
     date: str
-    # Court-recognized parenting-responsibility categories.
-    category: Literal[
-        "education",
-        "medical_dental_eye",
-        "religious",
-        "child_care",
-        "childrens_employment",
-        "motor_vehicle",
-        "activities",
-        "other",
-    ]
-    subcategory: str  # specific item, e.g. "Tuition", "Sports — game", "Camp"
-    responsible_party: Literal["mother", "father", "shared", "unclear"]
+    # education | medical_dental_eye | religious | child_care |
+    # childrens_employment | motor_vehicle | activities | other
+    category: str
+    subcategory: str
+    responsible_party: str   # mother | father | shared | unclear
     description: str
     quote: str
     sender: str
-    channel: Literal["text", "email", "unclear"]
+    channel: str
 
 
 class ThirdPartyStatement(BaseModel):
     date: str
-    source: str  # who made the statement
+    source: str
     description: str
     quote: str
-    channel: Literal["text", "email", "unclear"]  # text message or email
+    channel: str
 
 
 class Suggestion(BaseModel):
-    category: Literal[
-        "attachment",
-        "key_statement",
-        "evidence_to_gather",
-        "follow_up",
-        "other",
-    ]
+    # attachment | key_statement | evidence_to_gather | follow_up | other
+    category: str
     suggestion: str
-    related_date: str  # the date it relates to, or "" if none
+    related_date: str
 
 
 class Expense(BaseModel):
@@ -866,6 +855,50 @@ def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
     return chunks
 
 
+# Allowed values for the formerly-Literal enums, used to normalize the
+# model's free-form `str` output back into canonical buckets.
+_PARTIES = {"mother", "father", "shared", "unclear"}
+_CHANNELS = {"text", "email", "unclear"}
+_MISSED_KINDS = {
+    "cancellation", "no_show", "reschedule_request",
+    "late", "declined_time", "other",
+}
+_RESP_CATEGORIES = {
+    "education", "medical_dental_eye", "religious", "child_care",
+    "childrens_employment", "motor_vehicle", "activities", "other",
+}
+_SUGGESTION_CATEGORIES = {
+    "attachment", "key_statement", "evidence_to_gather", "follow_up", "other",
+}
+
+
+def _bucket(value: str | None, allowed: set[str], fallback: str) -> str:
+    """Coerce a free-text field into one of the allowed canonical buckets."""
+    if not value:
+        return fallback
+    v = value.strip().lower().replace(" ", "_").replace("-", "_")
+    return v if v in allowed else fallback
+
+
+def _normalize_extraction(report: CustodyExtraction) -> None:
+    """Snap the model's free-form enum-shaped strings into canonical buckets
+    in place, so downstream counts and charts always see expected values."""
+    for e in report.childcare_events:
+        e.parent = _bucket(e.parent, _PARTIES, "unclear")
+        e.channel = _bucket(e.channel, _CHANNELS, "unclear")
+    for m in report.missed_or_cancelled:
+        m.kind = _bucket(m.kind, _MISSED_KINDS, "other")
+        m.channel = _bucket(m.channel, _CHANNELS, "unclear")
+    for r in report.responsibility_events:
+        r.category = _bucket(r.category, _RESP_CATEGORIES, "other")
+        r.responsible_party = _bucket(r.responsible_party, _PARTIES, "unclear")
+        r.channel = _bucket(r.channel, _CHANNELS, "unclear")
+    for t in report.third_party_statements:
+        t.channel = _bucket(t.channel, _CHANNELS, "unclear")
+    for s in report.suggestions:
+        s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
+
+
 def _extract_chunk(chunk_messages: list, context_lines: list[str],
                    window_note: str) -> CustodyExtraction:
     """Run the custody extraction over one window. Synchronous — invoked via
@@ -908,6 +941,7 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
     report = response.parsed_output
     if report is None:
         raise HTTPException(502, "The model could not analyze one of the time windows.")
+    _normalize_extraction(report)
     return report
 
 
