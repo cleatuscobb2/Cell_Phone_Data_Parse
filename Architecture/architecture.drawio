@@ -31,11 +31,11 @@
         <mxCell id="w-signin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Sign in with Google&lt;br&gt;(Firebase Auth)" vertex="1">
           <mxGeometry height="46" width="190" x="790" y="220" as="geometry" />
         </mxCell>
-        <mxCell id="w-upload" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Upload text and / or&lt;br&gt;email files" vertex="1">
-          <mxGeometry height="54" width="210" x="495" y="295" as="geometry" />
+        <mxCell id="w-upload" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Upload text and / or email files&lt;br&gt;(multiple files per channel supported)" vertex="1">
+          <mxGeometry height="54" width="240" x="480" y="295" as="geometry" />
         </mxCell>
-        <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, state intake, filters)" vertex="1">
-          <mxGeometry height="54" width="210" x="495" y="395" as="geometry" />
+        <mxCell id="w-form" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Choose mode &amp;amp; complete the form&lt;br&gt;(case context, jurisdiction, state intake, financial docs, filters)" vertex="1">
+          <mxGeometry height="54" width="260" x="470" y="395" as="geometry" />
         </mxCell>
         <mxCell id="w-intake" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer the selected state&#39;s custody intake&lt;br&gt;(state-gated logic questions — WV today)" vertex="1">
           <mxGeometry height="50" width="250" x="765" y="297" as="geometry" />
@@ -97,8 +97,23 @@
         <mxCell id="w-creduce" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Claude API:&lt;br&gt;reduce &amp;amp; merge windows" vertex="1">
           <mxGeometry height="54" width="200" x="900" y="1400" as="geometry" />
         </mxCell>
-        <mxCell id="w-cout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="CustodyReport + breakdown&lt;br&gt;+ required forms + transcript" vertex="1">
-          <mxGeometry height="50" width="230" x="755" y="1520" as="geometry" />
+        <mxCell id="w-cout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="CustodyReport + breakdown + required forms&lt;br&gt;+ expenses + transcript" vertex="1">
+          <mxGeometry height="50" width="240" x="755" y="1520" as="geometry" />
+        </mxCell>
+        <mxCell id="w-fin-extract" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Extract child-related expenses&lt;br&gt;(4 batched Claude calls: receipts (vision),&lt;br&gt;EOBs (vision), payment-app CSVs, bank CSVs)" vertex="1">
+          <mxGeometry height="68" width="270" x="1140" y="1310" as="geometry" />
+        </mxCell>
+        <mxCell id="w-fin-out" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Expense ledger&lt;br&gt;(R# / I# / V# / B# refs)" vertex="1">
+          <mxGeometry height="50" width="220" x="1165" y="1430" as="geometry" />
+        </mxCell>
+        <mxCell id="we-mode-fin" edge="1" parent="1" source="w-mode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" target="w-fin-extract" value="custody mode (in parallel)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we-fin-out" edge="1" parent="1" source="w-fin-extract" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" target="w-fin-out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="we-fin-cout" edge="1" parent="1" source="w-fin-out" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" target="w-cout" value="merged into report">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="w-errsum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error 413:&lt;br&gt;selection too large" vertex="1">
           <mxGeometry height="54" width="170" x="-40" y="1123" as="geometry" />
@@ -115,7 +130,7 @@
         <mxCell id="w-rsum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render summary view&lt;br&gt;(insights, charts)" vertex="1">
           <mxGeometry height="54" width="210" x="270" y="1860" as="geometry" />
         </mxCell>
-        <mxCell id="w-rcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render custody report&lt;br&gt;(charts, message-linked timeline, evidence, forms)" vertex="1">
+        <mxCell id="w-rcus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Render custody report&lt;br&gt;(charts, timeline, evidence, forms, financials, SCA-FC-106)" vertex="1">
           <mxGeometry height="54" width="230" x="790" y="1770" as="geometry" />
         </mxCell>
         <mxCell id="w-export" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Download PDF report (portrait /&lt;br&gt;landscape) or Excel evidence workbook" vertex="1">
@@ -275,8 +290,8 @@
         <mxCell id="er-run" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;AnalysisRun&lt;/b&gt;&lt;hr&gt;mode : summary | custody&lt;br&gt;start_date / end_date&lt;br&gt;contact_scope&lt;br&gt;search_terms&lt;br&gt;windows" vertex="1">
           <mxGeometry height="124" width="240" x="340" y="200" as="geometry" />
         </mxCell>
-        <mxCell id="er-meta" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Meta&lt;/b&gt;&lt;hr&gt;total_messages&lt;br&gt;conversation_count&lt;br&gt;date_range&lt;br&gt;windows&lt;br&gt;other_parent&lt;br&gt;user_role&lt;br&gt;children[ ]&lt;br&gt;transcript_truncated" vertex="1">
-          <mxGeometry height="166" width="240" x="340" y="372" as="geometry" />
+        <mxCell id="er-meta" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Meta&lt;/b&gt;&lt;hr&gt;total_messages&lt;br&gt;conversation_count&lt;br&gt;date_range&lt;br&gt;windows&lt;br&gt;other_parent&lt;br&gt;user_role&lt;br&gt;children[ ]&lt;br&gt;transcript_truncated&lt;br&gt;financial_inputs : { monthly_gross_income? }" vertex="1">
+          <mxGeometry height="182" width="240" x="340" y="372" as="geometry" />
         </mxCell>
         <mxCell id="er-summary" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;ConversationSummary&lt;/b&gt;&lt;hr&gt;overall_sentiment" vertex="1">
           <mxGeometry height="64" width="230" x="660" y="60" as="geometry" />
@@ -406,11 +421,23 @@
         <mxCell id="re24" edge="1" parent="1" source="er-caseprofile" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-courtform" value="determines required packet">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="er-note-ref" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Message reference IDs&lt;/b&gt;&lt;br&gt;Each Message carries a stable ref — T1, T2… for texts and E1, E2… for emails. Childcare, Missed, Responsibility &amp;amp; Third-Party events are traced to their source Message by verbatim-quote match and cite that ref in the timeline, PDF &amp;amp; Excel reports." vertex="1">
-          <mxGeometry height="130" width="300" x="340" y="566" as="geometry" />
+        <mxCell id="er-note-ref" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Document reference IDs&lt;/b&gt;&lt;br&gt;Stable refs let every report row cite its source. Messages: T# (text), E# (email). Financial documents: R# (receipt / bill), I# (insurance EOB service line), V# (payment-app row — Venmo / Zelle / Cash App / PayPal), B# (bank or credit-card row). Childcare, Missed, Responsibility &amp;amp; Third-Party events are traced to their source Message by verbatim-quote match." vertex="1">
+          <mxGeometry height="180" width="320" x="340" y="566" as="geometry" />
         </mxCell>
         <mxCell id="er-note-state" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="&lt;b&gt;Per-state registry&lt;/b&gt;&lt;br&gt;The intake questionnaire (CaseProfile fields) and the required form packet are registered per State — stateIntake.js plus the WV Logic Path ruleset today. A state with no registered intake skips the questionnaire." vertex="1">
           <mxGeometry height="140" width="260" x="1620" y="384" as="geometry" />
+        </mxCell>
+        <mxCell id="er-expense" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#ffffff;strokeColor=#333333;" value="&lt;b&gt;Expense&lt;/b&gt;&lt;hr&gt;date&lt;br&gt;amount (out-of-pocket USD)&lt;br&gt;payer : mother | father | shared | unclear&lt;br&gt;payer_evidence&lt;br&gt;vendor&lt;br&gt;category (same as ResponsibilityEvent)&lt;br&gt;subcategory&lt;br&gt;description / quote&lt;br&gt;source_type : receipt | eob | payment_app | bank&lt;br&gt;source_index&lt;br&gt;ref : R# / I# / V# / B#&lt;br&gt;billed_amount? (EOB only)&lt;br&gt;insurance_paid? (EOB only)" vertex="1">
+          <mxGeometry height="220" width="280" x="1300" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="re-report-expense" edge="1" parent="1" source="er-report" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERone;startFill=0;endArrow=ERmany;endFill=0;rounded=0;" target="er-expense" value="financial evidence (uploaded docs)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="er-sca106" parent="1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;fillColor=#eef2ff;strokeColor=#6366f1;" value="&lt;b&gt;SCA106Worksheet (derived)&lt;/b&gt;&lt;hr&gt;period { start, end, months }&lt;br&gt;lines[ ] (work-related child care, health, tuition, extraordinary, other)&lt;br&gt;totals { monthly, annual, mother, father }&lt;br&gt;custody_time { mother_pct, father_pct }&lt;br&gt;income? / child_expenses_as_pct_of_income?" vertex="1">
+          <mxGeometry height="140" width="280" x="1620" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="re-expense-sca106" edge="1" parent="1" source="er-expense" style="edgeStyle=entityRelationEdgeStyle;html=1;fontSize=10;startArrow=ERmany;startFill=0;endArrow=ERone;endFill=0;dashed=1;rounded=0;" target="er-sca106" value="aggregated into (WV only)">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

@@ -602,17 +602,15 @@ def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> li
 
 
 def _collect_messages(req: https_fn.Request) -> list:
-    """Read both uploads from the request, parse each channel, merge by time."""
+    """Read every upload across both channels, parse each, merge by time.
+    Multiple files per channel are supported — useful when a parent has
+    several text exports or multiple .eml/.mbox files."""
     messages: list = []
-    text_file = req.files.get("file")
-    email_file = req.files.get("email_file")
     user_email = req.form.get("user_email")
-    if text_file is not None:
-        messages += _parse_text_upload(text_file.read(), text_file.filename or "")
-    if email_file is not None:
-        messages += _parse_email_upload(
-            email_file.read(), email_file.filename or "", user_email
-        )
+    for f in req.files.getlist("file"):
+        messages += _parse_text_upload(f.read(), f.filename or "")
+    for ef in req.files.getlist("email_file"):
+        messages += _parse_email_upload(ef.read(), ef.filename or "", user_email)
     if not messages:
         raise ApiError(
             422, "Upload a text-message export, an email file (.eml/.mbox), or both."

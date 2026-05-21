@@ -75,54 +75,104 @@ const UPLOAD_SVG =
   "M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 " +
   "5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z";
 
-/** One file drop target. Manages its own drag state and file input. */
-function DropZone({ label, hint, accept, file, onPick }) {
+/** Multi-file drop target. Manages its own drag state and file input;
+    additional drops append (don't replace) so a parent can build up a
+    set of text exports or .eml/.mbox files across several actions. */
+function DropZone({ label, hint, accept, files, onChange }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
+
+  function append(picked) {
+    const arr = Array.from(picked || []);
+    if (arr.length === 0) return;
+    onChange([...files, ...arr]);
+  }
+
+  function remove(i) {
+    onChange(files.filter((_, j) => j !== i));
+  }
+
+  const summary =
+    files.length === 0
+      ? hint
+      : files.length === 1
+        ? files[0].name
+        : `${files.length} files uploaded`;
+
   return (
-    <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        onPick(e.dataTransfer.files?.[0]);
-      }}
-      onClick={() => inputRef.current?.click()}
-      className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-7 text-center transition ${
-        dragOver
-          ? "border-indigo-400 bg-indigo-50"
-          : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
-      }`}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={(e) => onPick(e.target.files?.[0])}
-      />
-      <svg
-        className="h-8 w-8 text-slate-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={1.5}
+    <div>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          append(e.dataTransfer.files);
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-7 text-center transition ${
+          dragOver
+            ? "border-indigo-400 bg-indigo-50"
+            : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
+        }`}
       >
-        <path strokeLinecap="round" strokeLinejoin="round" d={UPLOAD_SVG} />
-      </svg>
-      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-0.5 text-sm font-medium text-slate-700">
-        {file ? file.name : hint}
-      </p>
-      <p className="text-xs text-slate-400">
-        {file ? "Click to replace" : "drag & drop or click"}
-      </p>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={accept}
+          className="hidden"
+          onChange={(e) => {
+            append(e.target.files);
+            // Let the same filename be reselected later.
+            e.target.value = "";
+          }}
+        />
+        <svg
+          className="h-8 w-8 text-slate-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={1.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d={UPLOAD_SVG} />
+        </svg>
+        <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
+        <p className="mt-0.5 text-sm font-medium text-slate-700">{summary}</p>
+        <p className="text-xs text-slate-400">
+          {files.length === 0
+            ? "drag & drop or click — multiple OK"
+            : "click to add more"}
+        </p>
+      </div>
+      {files.length > 1 && (
+        <ul className="mt-2 space-y-1">
+          {files.map((f, i) => (
+            <li
+              key={i}
+              className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-700"
+            >
+              <span className="truncate" title={f.name}>{f.name}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  remove(i);
+                }}
+                className="ml-2 text-slate-400 hover:text-rose-600"
+                aria-label={`Remove ${f.name}`}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -146,8 +196,8 @@ function highlight(text, terms) {
 
 export default function MessageSummarizer() {
   const [mode, setMode] = useState("summary"); // "summary" | "custody"
-  const [file, setFile] = useState(null);
-  const [emailFile, setEmailFile] = useState(null);
+  const [textFiles, setTextFiles] = useState([]);
+  const [emailFiles, setEmailFiles] = useState([]);
   const [userEmail, setUserEmail] = useState("");
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -171,17 +221,17 @@ export default function MessageSummarizer() {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
 
-  // Load the contact roster from whichever file(s) are currently chosen.
-  const loadContacts = useCallback(async (textF, emailF, email) => {
-    if (!textF && !emailF) {
+  // Load the contact roster from every file currently chosen.
+  const loadContacts = useCallback(async (texts, emails, email) => {
+    if ((!texts || texts.length === 0) && (!emails || emails.length === 0)) {
       setContacts([]);
       return;
     }
     setContactsLoading(true);
     try {
       const form = new FormData();
-      if (textF) form.append("file", textF);
-      if (emailF) form.append("email_file", emailF);
+      for (const f of texts || []) form.append("file", f);
+      for (const f of emails || []) form.append("email_file", f);
       if (email?.trim()) form.append("user_email", email.trim());
       const res = await apiFetch("/contacts", { method: "POST", body: form });
       const data = await res.json();
@@ -194,22 +244,20 @@ export default function MessageSummarizer() {
     }
   }, []);
 
-  // Picking either file resets scope and reloads the contact roster.
-  function pickText(f) {
-    if (!f) return;
-    setFile(f);
+  // Updating either file list resets scope and reloads the contact roster.
+  function changeTextFiles(next) {
+    setTextFiles(next);
     setResult(null);
     setError("");
     setSelectedContact("");
-    loadContacts(f, emailFile, userEmail);
+    loadContacts(next, emailFiles, userEmail);
   }
-  function pickEmail(f) {
-    if (!f) return;
-    setEmailFile(f);
+  function changeEmailFiles(next) {
+    setEmailFiles(next);
     setResult(null);
     setError("");
     setSelectedContact("");
-    loadContacts(file, f, userEmail);
+    loadContacts(textFiles, next, userEmail);
   }
 
   function switchMode(m) {
@@ -219,7 +267,7 @@ export default function MessageSummarizer() {
   }
 
   async function handleSubmit() {
-    if (!file && !emailFile) {
+    if (textFiles.length === 0 && emailFiles.length === 0) {
       setError("Add a text-message export, an email file, or both.");
       return;
     }
@@ -232,8 +280,8 @@ export default function MessageSummarizer() {
     setResult(null);
 
     const form = new FormData();
-    if (file) form.append("file", file);
-    if (emailFile) form.append("email_file", emailFile);
+    for (const f of textFiles) form.append("file", f);
+    for (const f of emailFiles) form.append("email_file", f);
     if (userEmail.trim()) form.append("user_email", userEmail.trim());
     if (startDate) form.append("start_date", startDate);
     if (endDate) form.append("end_date", endDate);
@@ -321,17 +369,17 @@ export default function MessageSummarizer() {
         <div className="grid gap-4 sm:grid-cols-2">
           <DropZone
             label="Text messages"
-            hint="Drop your text export"
+            hint="Drop your text exports"
             accept=".json,.csv,application/json,text/csv"
-            file={file}
-            onPick={pickText}
+            files={textFiles}
+            onChange={changeTextFiles}
           />
           <DropZone
             label="Emails"
-            hint="Drop an .eml or .mbox file"
+            hint="Drop .eml or .mbox files"
             accept=".eml,.mbox,.json,.csv,message/rfc822"
-            file={emailFile}
-            onPick={pickEmail}
+            files={emailFiles}
+            onChange={changeEmailFiles}
           />
         </div>
         <label className="flex flex-col text-xs font-medium text-slate-600">
@@ -506,7 +554,7 @@ export default function MessageSummarizer() {
             <select
               value={selectedContact}
               onChange={(e) => setSelectedContact(e.target.value)}
-              disabled={(!file && !emailFile) || contactsLoading}
+              disabled={(textFiles.length === 0 && emailFiles.length === 0) || contactsLoading}
               className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="">

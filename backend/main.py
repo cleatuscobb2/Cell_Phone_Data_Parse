@@ -599,17 +599,19 @@ def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> li
 
 
 async def _collect_messages(
-    file: UploadFile | None,
-    email_file: UploadFile | None,
+    files: list[UploadFile] | None,
+    email_files: list[UploadFile] | None,
     user_email: str | None,
 ) -> list:
-    """Read both uploads, parse each channel, and merge chronologically."""
+    """Read every upload across both channels, parse each, and merge
+    chronologically. Multiple files per channel are supported — useful
+    when a parent has several text exports or multiple .eml/.mbox files."""
     messages: list = []
-    if file is not None:
-        messages += _parse_text_upload(await file.read(), file.filename or "")
-    if email_file is not None:
+    for f in files or []:
+        messages += _parse_text_upload(await f.read(), f.filename or "")
+    for ef in email_files or []:
         messages += _parse_email_upload(
-            await email_file.read(), email_file.filename or "", user_email
+            await ef.read(), ef.filename or "", user_email
         )
     if not messages:
         raise HTTPException(
@@ -626,8 +628,8 @@ def health() -> dict:
 
 @app.post("/contacts")
 async def contacts(
-    file: UploadFile | None = File(None),
-    email_file: UploadFile | None = File(None),
+    file: list[UploadFile] | None = File(None),
+    email_file: list[UploadFile] | None = File(None),
     user_email: str | None = Form(None),
 ) -> dict:
     """Parse-only (no Claude call): list the conversations across the
@@ -657,8 +659,8 @@ CHUNK_CONCURRENCY = 4          # windows analyzed in parallel
 
 @app.post("/summarize")
 async def summarize(
-    file: UploadFile | None = File(None),
-    email_file: UploadFile | None = File(None),
+    file: list[UploadFile] | None = File(None),
+    email_file: list[UploadFile] | None = File(None),
     user_email: str | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
@@ -1372,8 +1374,8 @@ def _extract_payment_expenses(
 
 @app.post("/custody-report")
 async def custody_report(
-    file: UploadFile | None = File(None),
-    email_file: UploadFile | None = File(None),
+    file: list[UploadFile] | None = File(None),
+    email_file: list[UploadFile] | None = File(None),
     receipt_files: list[UploadFile] | None = File(None),
     eob_files: list[UploadFile] | None = File(None),
     payment_files: list[UploadFile] | None = File(None),
