@@ -1476,36 +1476,37 @@ async def custody_report(
         "card-last-4 to the parent. If no card or sender info is visible, "
         "set payer to 'unclear'.",
     ]
+    # Read every uploaded file first (must await each .read() sequentially
+    # in FastAPI), then run the four extractors concurrently so the total
+    # wall-clock time is max(receipts, eobs, payment, bank) instead of sum.
     receipt_payload: list[tuple[bytes, str]] = []
     for rf in receipt_files or []:
         receipt_payload.append((await rf.read(), rf.filename or ""))
-    receipt_expenses = await asyncio.to_thread(
-        _extract_receipts, receipt_payload, cards, fin_context,
-    )
     eob_payload: list[tuple[bytes, str]] = []
     for ef in eob_files or []:
         eob_payload.append((await ef.read(), ef.filename or ""))
-    eob_expenses = await asyncio.to_thread(
-        _extract_eob_expenses, eob_payload, cards, fin_context,
-    )
     csv_rows: list[dict] = []
     for pf in payment_files or []:
         csv_rows.extend(_parse_payment_csv(await pf.read(), pf.filename or "", len(csv_rows)))
-    payment_expenses = await asyncio.to_thread(
-        _extract_payment_expenses, csv_rows, cards, fin_context,
-    )
     bank_rows: list[dict] = []
     for bf in bank_files or []:
         bank_rows.extend(_parse_bank_csv(await bf.read(), bf.filename or "", len(bank_rows)))
-    bank_expenses = await asyncio.to_thread(
-        _extract_bank_expenses, bank_rows, cards, fin_context,
-    )
-    report.expenses = (
-        list(receipt_expenses)
-        + list(eob_expenses)
-        + list(payment_expenses)
-        + list(bank_expenses)
-    )
+
+    if receipt_payload or eob_payload or csv_rows or bank_rows:
+        receipt_expenses, eob_expenses, payment_expenses, bank_expenses = (
+            await asyncio.gather(
+                asyncio.to_thread(_extract_receipts, receipt_payload, cards, fin_context),
+                asyncio.to_thread(_extract_eob_expenses, eob_payload, cards, fin_context),
+                asyncio.to_thread(_extract_payment_expenses, csv_rows, cards, fin_context),
+                asyncio.to_thread(_extract_bank_expenses, bank_rows, cards, fin_context),
+            )
+        )
+        report.expenses = (
+            list(receipt_expenses)
+            + list(eob_expenses)
+            + list(payment_expenses)
+            + list(bank_expenses)
+        )
 
     return {
         "meta": {

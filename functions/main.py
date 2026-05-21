@@ -1402,34 +1402,42 @@ def handle_custody(req: https_fn.Request) -> dict:
         "card-last-4 to the parent. If no card or sender info is visible, "
         "set payer to 'unclear'.",
     ]
+    # Read every uploaded file first, then run the four extractors
+    # concurrently so the total wall-clock time is max(receipts, eobs,
+    # payment, bank) instead of sum.
     receipt_payload: list[tuple[bytes, str]] = [
         (rf.read(), rf.filename or "")
         for rf in req.files.getlist("receipt_files")
     ]
-    receipt_expenses = _extract_receipts(receipt_payload, cards, fin_context)
     eob_payload: list[tuple[bytes, str]] = [
         (ef.read(), ef.filename or "")
         for ef in req.files.getlist("eob_files")
     ]
-    eob_expenses = _extract_eob_expenses(eob_payload, cards, fin_context)
     csv_rows: list[dict] = []
     for pf in req.files.getlist("payment_files"):
         csv_rows.extend(
             _parse_payment_csv(pf.read(), pf.filename or "", len(csv_rows))
         )
-    payment_expenses = _extract_payment_expenses(csv_rows, cards, fin_context)
     bank_rows: list[dict] = []
     for bf in req.files.getlist("bank_files"):
         bank_rows.extend(
             _parse_bank_csv(bf.read(), bf.filename or "", len(bank_rows))
         )
-    bank_expenses = _extract_bank_expenses(bank_rows, cards, fin_context)
-    report.expenses = (
-        list(receipt_expenses)
-        + list(eob_expenses)
-        + list(payment_expenses)
-        + list(bank_expenses)
-    )
+
+    if receipt_payload or eob_payload or csv_rows or bank_rows:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {
+                "receipt": pool.submit(_extract_receipts, receipt_payload, cards, fin_context),
+                "eob": pool.submit(_extract_eob_expenses, eob_payload, cards, fin_context),
+                "payment": pool.submit(_extract_payment_expenses, csv_rows, cards, fin_context),
+                "bank": pool.submit(_extract_bank_expenses, bank_rows, cards, fin_context),
+            }
+            report.expenses = (
+                list(futures["receipt"].result())
+                + list(futures["eob"].result())
+                + list(futures["payment"].result())
+                + list(futures["bank"].result())
+            )
 
     return {
         "meta": {
