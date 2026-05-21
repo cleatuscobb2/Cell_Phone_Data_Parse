@@ -877,6 +877,26 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
 
 
+def _coerce_tool_payload(payload):
+    """Some Claude tool_use payloads come back with a list or object encoded
+    as a JSON string (e.g. `{"expenses": "[{...}, {...}]"}` instead of
+    `{"expenses": [{...}, {...}]}`). Unwrap any string value that parses
+    as JSON object/array, recursively. Leaves everything else untouched."""
+    if isinstance(payload, str):
+        s = payload.strip()
+        if s and s[0] in "[{":
+            try:
+                return _coerce_tool_payload(json.loads(s))
+            except (json.JSONDecodeError, ValueError):
+                return payload
+        return payload
+    if isinstance(payload, dict):
+        return {k: _coerce_tool_payload(v) for k, v in payload.items()}
+    if isinstance(payload, list):
+        return [_coerce_tool_payload(v) for v in payload]
+    return payload
+
+
 def _structured_extract(
     output_model: type[BaseModel],
     *,
@@ -923,9 +943,29 @@ def _structured_extract(
         )
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit":
+            payload = _coerce_tool_payload(block.input)
             try:
-                return output_model.model_validate(block.input)
-            except ValidationError:
+                return output_model.model_validate(payload)
+            except ValidationError as ve:
+                # Log what the model actually produced so we can see whether
+                # the failure is truncation (incomplete JSON), a type mismatch
+                # we can coerce, or a required field the prompt should ask for.
+                import sys
+                print(
+                    f"[_structured_extract] ValidationError for {output_model.__name__}: "
+                    f"{ve.error_count()} error(s)",
+                    file=sys.stderr, flush=True,
+                )
+                for err in ve.errors()[:5]:
+                    print(f"  - {err.get('loc')}: {err.get('type')} — {err.get('msg')}",
+                          file=sys.stderr, flush=True)
+                try:
+                    import json as _json
+                    preview = _json.dumps(block.input)[:1500]
+                    print(f"  payload preview: {preview}",
+                          file=sys.stderr, flush=True)
+                except Exception:
+                    pass
                 raise HTTPException(
                     413,
                     "A time window produced more events than fit in one response. "

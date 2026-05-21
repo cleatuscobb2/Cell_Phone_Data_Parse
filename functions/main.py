@@ -837,6 +837,25 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
 
 
+def _coerce_tool_payload(payload):
+    """Some Claude tool_use payloads come back with a list or object encoded
+    as a JSON string. Unwrap any string value that parses as JSON object /
+    array, recursively. Leaves everything else untouched."""
+    if isinstance(payload, str):
+        s = payload.strip()
+        if s and s[0] in "[{":
+            try:
+                return _coerce_tool_payload(json.loads(s))
+            except (json.JSONDecodeError, ValueError):
+                return payload
+        return payload
+    if isinstance(payload, dict):
+        return {k: _coerce_tool_payload(v) for k, v in payload.items()}
+    if isinstance(payload, list):
+        return [_coerce_tool_payload(v) for v in payload]
+    return payload
+
+
 def _structured_extract(
     output_model: type[BaseModel],
     *,
@@ -879,7 +898,7 @@ def _structured_extract(
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit":
             try:
-                return output_model.model_validate(block.input)
+                return output_model.model_validate(_coerce_tool_payload(block.input))
             except ValidationError:
                 raise ApiError(
                     413,
