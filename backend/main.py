@@ -729,36 +729,14 @@ async def summarize(
     # 6. Summarize. Structured output guarantees the response shape; the
     #    system prompt is cached so repeat requests are cheaper.
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        summary = _structured_extract(
+            ConversationSummary,
+            system_text=SYSTEM_PROMPT,
+            user_content=user_content,
             max_tokens=16000,
-            thinking={"type": "adaptive"},
-            system=[{
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": user_content}],
-            output_format=ConversationSummary,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        raise HTTPException(
-            413,
-            "The summary output was too large to complete. Narrow the date "
-            "range, contact, or search terms and try again.",
-        )
-
-    if response.stop_reason == "max_tokens":
-        raise HTTPException(
-            413,
-            "The summary output hit the size limit before completing. Narrow the "
-            "date range, contact, or search terms and try again.",
-        )
-    summary = response.parsed_output
-    if summary is None:
-        raise HTTPException(502, "The model could not produce a structured summary.")
 
     body = {
         "meta": {
@@ -899,6 +877,60 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
 
 
+def _structured_extract(
+    output_model: type[BaseModel],
+    *,
+    system_text: str,
+    user_content,
+    max_tokens: int = 16000,
+    use_thinking: bool = True,
+) -> BaseModel:
+    """Call Claude with the output model's JSON schema as a NON-strict tool.
+
+    `messages.parse(output_format=...)` compiles a strict grammar from the
+    schema; for our nested CustodyExtraction shape that grammar exceeds
+    Anthropic's compiled-size limit. A non-strict tool gives the model the
+    same schema as guidance without the hard grammar — we Pydantic-validate
+    the model's tool_use payload after. Same prompt, same caching, same
+    adaptive thinking; just a looser constraint."""
+    kwargs: dict = {
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "system": [{
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        "messages": [{"role": "user", "content": user_content}],
+        "tools": [{
+            "name": "submit",
+            "description": "Submit the structured analysis.",
+            "input_schema": output_model.model_json_schema(),
+        }],
+        "tool_choice": {"type": "tool", "name": "submit"},
+    }
+    if use_thinking:
+        kwargs["thinking"] = {"type": "adaptive"}
+    response = client.messages.create(**kwargs)
+    if response.stop_reason == "max_tokens":
+        raise HTTPException(
+            413,
+            "A time window produced too many events to extract. Narrow the date "
+            "range and try again.",
+        )
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "submit":
+            try:
+                return output_model.model_validate(block.input)
+            except ValidationError:
+                raise HTTPException(
+                    413,
+                    "A time window produced more events than fit in one response. "
+                    "Narrow the date range and try again.",
+                )
+    raise HTTPException(502, "The model did not return a structured response.")
+
+
 def _extract_chunk(chunk_messages: list, context_lines: list[str],
                    window_note: str) -> CustodyExtraction:
     """Run the custody extraction over one window. Synchronous — invoked via
@@ -908,39 +940,14 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
         f"\n\n{window_note}\n\nHere is this portion of the transcript:\n\n{condensed}"
     )
     try:
-        response = client.messages.parse(
-            model=MODEL,
-            # 16000 is the most a non-streaming request may request from this
-            # SDK; windowing (below) keeps each window's output well under it.
+        report = _structured_extract(
+            CustodyExtraction,
+            system_text=CUSTODY_PROMPT,
+            user_content=user_content,
             max_tokens=16000,
-            thinking={"type": "adaptive"},
-            system=[{
-                "type": "text",
-                "text": CUSTODY_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": user_content}],
-            output_format=CustodyExtraction,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        # The structured output was cut off before its JSON closed — this
-        # window held more events than fit in one response.
-        raise HTTPException(
-            413,
-            "A time window produced more events than fit in one response. "
-            "Narrow the date range and try again.",
-        )
-    if response.stop_reason == "max_tokens":
-        raise HTTPException(
-            413,
-            "A time window produced too many events to extract. Narrow the date "
-            "range and try again.",
-        )
-    report = response.parsed_output
-    if report is None:
-        raise HTTPException(502, "The model could not analyze one of the time windows.")
     _normalize_extraction(report)
     return report
 
@@ -976,21 +983,13 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
 
     narrative = None
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        narrative = _structured_extract(
+            CustodyNarrative,
+            system_text=REDUCE_PROMPT,
+            user_content=f"{window_summaries}\n\n{totals}",
             max_tokens=4000,
-            thinking={"type": "adaptive"},
-            system=[{
-                "type": "text",
-                "text": REDUCE_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": f"{window_summaries}\n\n{totals}"}],
-            output_format=CustodyNarrative,
         )
-        if response.stop_reason != "max_tokens":
-            narrative = response.parsed_output
-    except (anthropic.APIStatusError, ValidationError):
+    except (anthropic.APIStatusError, ValidationError, HTTPException):
         narrative = None
 
     if narrative is None:
@@ -1202,27 +1201,16 @@ def _extract_bank_expenses(
         + json.dumps(rows, indent=2, default=str)
     )
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        parsed = _structured_extract(
+            ExpenseList,
+            system_text=BANK_CSV_PROMPT,
+            user_content=user_content,
             max_tokens=8000,
-            system=[{
-                "type": "text",
-                "text": BANK_CSV_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": user_content}],
-            output_format=ExpenseList,
+            use_thinking=False,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        raise HTTPException(
-            413,
-            "More child-related bank rows than fit in one response. "
-            "Split the statement into smaller date ranges.",
-        )
-    parsed = response.parsed_output
-    return list(parsed.expenses) if parsed else []
+    return list(parsed.expenses)
 
 
 def _extract_receipts(
@@ -1277,26 +1265,16 @@ def _extract_receipts(
                 "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
             })
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        parsed = _structured_extract(
+            ExpenseList,
+            system_text=RECEIPTS_PROMPT,
+            user_content=content,
             max_tokens=8000,
-            system=[{
-                "type": "text",
-                "text": RECEIPTS_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": content}],
-            output_format=ExpenseList,
+            use_thinking=False,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        raise HTTPException(
-            413,
-            "More receipts than fit in one response. Upload fewer receipts and retry.",
-        )
-    parsed = response.parsed_output
-    return list(parsed.expenses) if parsed else []
+    return list(parsed.expenses)
 
 
 def _extract_eob_expenses(
@@ -1352,26 +1330,16 @@ def _extract_eob_expenses(
                 "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
             })
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        parsed = _structured_extract(
+            ExpenseList,
+            system_text=EOB_PROMPT,
+            user_content=content,
             max_tokens=8000,
-            system=[{
-                "type": "text",
-                "text": EOB_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": content}],
-            output_format=ExpenseList,
+            use_thinking=False,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        raise HTTPException(
-            413,
-            "More EOB service lines than fit in one response. Upload fewer EOBs and retry.",
-        )
-    parsed = response.parsed_output
-    return list(parsed.expenses) if parsed else []
+    return list(parsed.expenses)
 
 
 def _extract_payment_expenses(
@@ -1395,26 +1363,16 @@ def _extract_payment_expenses(
         + json.dumps(rows, indent=2, default=str)
     )
     try:
-        response = client.messages.parse(
-            model=MODEL,
+        parsed = _structured_extract(
+            ExpenseList,
+            system_text=PAYMENT_CSV_PROMPT,
+            user_content=user_content,
             max_tokens=8000,
-            system=[{
-                "type": "text",
-                "text": PAYMENT_CSV_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": user_content}],
-            output_format=ExpenseList,
+            use_thinking=False,
         )
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    except ValidationError:
-        raise HTTPException(
-            413,
-            "More payment rows than fit in one response. Split into smaller files.",
-        )
-    parsed = response.parsed_output
-    return list(parsed.expenses) if parsed else []
+    return list(parsed.expenses)
 
 
 @app.post("/custody-report")
