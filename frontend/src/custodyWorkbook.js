@@ -194,6 +194,9 @@ const EXPENSE_COLS = [
   { header: "Subcategory", key: "subcategory", width: 22 },
   { header: "Description", key: "description", width: 48 },
   { header: "Verbatim quote", key: "quote", width: 56 },
+  // EOB-only columns — blank for receipts/CSVs.
+  { header: "Billed (EOB)", key: "billed_amount", width: 14 },
+  { header: "Insurance paid (EOB)", key: "insurance_paid", width: 18 },
 ];
 
 const FIN_FINDING_COLS = [
@@ -561,6 +564,8 @@ export function buildCustodyWorkbook(data) {
         subcategory: e.subcategory || "",
         description: e.description || "",
         quote: e.quote || "",
+        billed_amount: e.billed_amount != null ? Number(e.billed_amount) : "",
+        insurance_paid: e.insurance_paid != null ? Number(e.insurance_paid) : "",
       })),
     );
     if (finFindings.length > 0) {

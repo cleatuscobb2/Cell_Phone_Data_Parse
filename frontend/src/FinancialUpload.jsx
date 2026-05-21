@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 
 const RECEIPT_ACCEPT =
   "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf";
+const EOB_ACCEPT = RECEIPT_ACCEPT;
 const CSV_ACCEPT = ".csv,text/csv";
 
 function MultiDropZone({ label, hint, accept, files, onChange }) {
@@ -93,20 +94,29 @@ function MultiDropZone({ label, hint, accept, files, onChange }) {
 
 export default function FinancialUpload({
   receipts,
+  eobs,
   paymentCsvs,
   bankCsvs,
   onReceiptsChange,
+  onEobsChange,
   onPaymentCsvsChange,
   onBankCsvsChange,
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <MultiDropZone
         label="Receipts / bills"
         hint="Images or PDFs"
         accept={RECEIPT_ACCEPT}
         files={receipts}
         onChange={onReceiptsChange}
+      />
+      <MultiDropZone
+        label="Insurance EOBs"
+        hint="Explanation-of-Benefits"
+        accept={EOB_ACCEPT}
+        files={eobs}
+        onChange={onEobsChange}
       />
       <MultiDropZone
         label="Payment-app CSVs"

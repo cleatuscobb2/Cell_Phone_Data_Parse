@@ -6,6 +6,7 @@
  *   T1, T2, …  text messages
  *   E1, E2, …  emails
  *   R1, R2, …  receipts / invoices / bills
+ *   I1, I2, …  insurance Explanation-of-Benefits service lines
  *   V1, V2, …  payment-app transactions (Venmo, Zelle, Cash App, PayPal)
  *   B1, B2, …  bank / credit-card transactions
  *
@@ -16,7 +17,12 @@
  * spreadsheet output can't show.
  */
 
-const EXPENSE_PREFIX = { receipt: "R", payment_app: "V", bank: "B" };
+const EXPENSE_PREFIX = {
+  receipt: "R",
+  eob: "I",
+  payment_app: "V",
+  bank: "B",
+};
 
 /** Annotate a transcript so each message carries a `ref` ("T14", "E3"). */
 export function refMessages(transcript = []) {

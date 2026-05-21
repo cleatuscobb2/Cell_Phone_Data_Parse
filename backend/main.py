@@ -205,8 +205,12 @@ class Expense(BaseModel):
     subcategory: str
     description: str
     quote: str                        # verbatim text from the source document
-    source_type: Literal["receipt", "payment_app", "bank"]
+    source_type: Literal["receipt", "payment_app", "bank", "eob"]
     source_index: int                 # 0-based position within its source-type list
+    # EOB-only structured context — `amount` is the patient responsibility
+    # (out-of-pocket); these two carry the surrounding insurance picture.
+    billed_amount: float | None = None     # what the provider billed
+    insurance_paid: float | None = None    # what the insurer covered
 
 
 class CustodyReport(BaseModel):
@@ -414,6 +418,40 @@ other limitations evident from the window summaries.
 
 Be neutral and factual. Do not invent events or numbers beyond what you are \
 given."""
+
+
+EOB_PROMPT = """You are extracting child-related medical expenses from \
+insurance Explanation-of-Benefits (EOB) documents uploaded by a parent in \
+a child-custody case.
+
+The user message provides:
+- the case context (user's role, other parent's name, children),
+- a card-lookup mapping from card-last-4 to "mother" or "father" \
+(rarely used for EOBs — most EOBs identify the subscriber by name),
+- one or more EOB documents, each labeled with its 0-based index.
+
+For EACH service line on each EOB that pertains to one of the children, \
+emit one Expense:
+- date: date of service (YYYY-MM-DD)
+- amount: the PATIENT RESPONSIBILITY for that service (deductible + copay \
++ coinsurance — what the parent actually owed out of pocket)
+- billed_amount: the provider's billed amount for the service
+- insurance_paid: what the insurer paid
+- vendor: the provider / facility name as shown
+- category: medical_dental_eye (almost always for EOBs)
+- subcategory: short label — "Office visit", "Dental cleaning", \
+"Vision exam", "Lab work", "Imaging", etc.
+- description: factual sentence describing the service
+- quote: a verbatim line from the EOB that supports the numbers
+- payer: the subscriber if the EOB names them and they match the user or \
+the other parent; otherwise "unclear"
+- payer_evidence: e.g. "subscriber: Sarah Miller (mother)", "policyholder: David Miller (father)"
+- source_type: "eob"
+- source_index: the 0-based EOB index from the input
+
+Skip lines that are for an adult only (not one of the children) or that \
+have zero patient responsibility AND zero billed (informational only). \
+Be conservative: omit anything you cannot ground in the document."""
 
 
 RECEIPTS_PROMPT = """You are extracting child-related expenses from receipts, \
@@ -936,6 +974,8 @@ def _combine_reports(partials: list[CustodyReport]) -> CustodyReport:
 # --- Financial extraction -----------------------------------------------------
 # Bounds for the batched Claude calls.
 MAX_RECEIPTS = 20      # one vision call per request, capped for cost/latency
+MAX_EOBS = 12          # EOBs often have multiple service lines, so the
+                       # cap is lower than for receipts
 MAX_CSV_ROWS = 200     # payment-app rows in one categorize call
 MAX_BANK_ROWS = 500    # bank/credit-card statements have many more rows;
                        # the LLM filters most as non-child-related
@@ -1212,6 +1252,81 @@ def _extract_receipts(
     return list(parsed.expenses) if parsed else []
 
 
+def _extract_eob_expenses(
+    files: list[tuple[bytes, str]],
+    card_lookup: dict[str, str],
+    case_context: list[str],
+) -> list[Expense]:
+    """Single batched Claude vision call across uploaded EOBs. Each EOB
+    may produce several Expense rows (one per service line)."""
+    if not files:
+        return []
+    if len(files) > MAX_EOBS:
+        raise HTTPException(
+            413,
+            f"Too many EOBs in one request ({len(files)}). "
+            f"Upload at most {MAX_EOBS} at a time.",
+        )
+    content: list[dict] = [{
+        "type": "text",
+        "text": (
+            "\n".join(case_context)
+            + "\n\nCard-lookup mapping (last-4 → parent): "
+            + (json.dumps(card_lookup) if card_lookup else "(none provided)")
+            + f"\n\nEOBs follow ({len(files)} document"
+            + ("s" if len(files) != 1 else "")
+            + "), each labeled with its 0-based source_index. Emit one "
+            + "Expense per child-related service line:"
+        ),
+    }]
+    for i, (raw, name) in enumerate(files):
+        ext = "." + (name.rsplit(".", 1)[-1].lower() if "." in name else "")
+        mime = _IMAGE_MIME.get(ext)
+        b64 = base64.b64encode(raw).decode("ascii")
+        if mime is not None:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": b64},
+            })
+        elif ext in _PDF_EXTS:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": b64,
+                },
+            })
+        else:
+            content.append({
+                "type": "text",
+                "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
+            })
+    try:
+        response = client.messages.parse(
+            model=MODEL,
+            max_tokens=8000,
+            system=[{
+                "type": "text",
+                "text": EOB_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": content}],
+            output_format=ExpenseList,
+        )
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ValidationError:
+        raise HTTPException(
+            413,
+            "More EOB service lines than fit in one response. Upload fewer EOBs and retry.",
+        )
+    parsed = response.parsed_output
+    return list(parsed.expenses) if parsed else []
+
+
 def _extract_payment_expenses(
     rows: list[dict],
     card_lookup: dict[str, str],
@@ -1260,6 +1375,7 @@ async def custody_report(
     file: UploadFile | None = File(None),
     email_file: UploadFile | None = File(None),
     receipt_files: list[UploadFile] | None = File(None),
+    eob_files: list[UploadFile] | None = File(None),
     payment_files: list[UploadFile] | None = File(None),
     bank_files: list[UploadFile] | None = File(None),
     user_email: str | None = Form(None),
@@ -1364,6 +1480,12 @@ async def custody_report(
     receipt_expenses = await asyncio.to_thread(
         _extract_receipts, receipt_payload, cards, fin_context,
     )
+    eob_payload: list[tuple[bytes, str]] = []
+    for ef in eob_files or []:
+        eob_payload.append((await ef.read(), ef.filename or ""))
+    eob_expenses = await asyncio.to_thread(
+        _extract_eob_expenses, eob_payload, cards, fin_context,
+    )
     csv_rows: list[dict] = []
     for pf in payment_files or []:
         csv_rows.extend(_parse_payment_csv(await pf.read(), pf.filename or "", len(csv_rows)))
@@ -1377,7 +1499,10 @@ async def custody_report(
         _extract_bank_expenses, bank_rows, cards, fin_context,
     )
     report.expenses = (
-        list(receipt_expenses) + list(payment_expenses) + list(bank_expenses)
+        list(receipt_expenses)
+        + list(eob_expenses)
+        + list(payment_expenses)
+        + list(bank_expenses)
     )
 
     return {

@@ -211,9 +211,10 @@ function buildReport(spec) {
 
   // Synthetic expenses — child-related transactions, mostly mother-paid
   // (~80%), spread over the case period. Source-types rotate between
-  // receipts, payment_app rows, and bank entries so R#, V#, and B#
-  // refs all appear in the regenerated samples.
+  // receipts, EOBs, payment_app rows, and bank entries so R#, I#, V#,
+  // and B# refs all appear in the regenerated samples.
   let receiptIdx = 0;
+  let eobIdx = 0;
   let venmoIdx = 0;
   let bankIdx = 0;
   const expenses = Array.from({ length: spec.expenses || 0 }, (_, i) => {
@@ -225,14 +226,29 @@ function buildReport(spec) {
     // Card lookup — mother's card ends in 4521, father's in 8734.
     const card =
       payer === "mother" ? "4521" : payer === "father" ? "8734" : "shared";
-    // Override one in four receipts to come from a bank statement, so
-    // the sample shows real B# refs alongside R# and V#.
-    const source_type =
-      tpl.source === "receipt" && i % 4 === 3 ? "bank" : tpl.source;
+    // Override some receipts to come from bank statements or EOBs so the
+    // sample shows real B# and I# refs alongside R# and V#. Medical /
+    // dental / eye receipts become EOBs (i % 5 === 0); other categories
+    // sometimes show up as bank rows.
+    let source_type = tpl.source;
+    if (tpl.category === "medical_dental_eye" && i % 5 === 0) {
+      source_type = "eob";
+    } else if (tpl.source === "receipt" && i % 4 === 3) {
+      source_type = "bank";
+    }
     const source_index =
       source_type === "receipt" ? receiptIdx++
+      : source_type === "eob" ? eobIdx++
       : source_type === "payment_app" ? venmoIdx++
       : bankIdx++;
+    // EOBs show insurance covering most of the cost; the patient
+    // responsibility (`amount`) is what the parent actually owes.
+    const billed_amount =
+      source_type === "eob" ? Math.round(amount * 4 * 100) / 100 : null;
+    const insurance_paid =
+      source_type === "eob"
+        ? Math.round((billed_amount - amount) * 100) / 100
+        : null;
     return {
       date: iso(start, end, (i + 0.5) / Math.max(1, spec.expenses)),
       amount,
@@ -244,19 +260,28 @@ function buildReport(spec) {
             : "Venmo from Me"
           : source_type === "bank"
             ? `bank: card ending ${card}`
-            : `card ending ${card}`,
+            : source_type === "eob"
+              ? `subscriber: ${payer === "father" ? "David Miller (father)" : "Sarah Miller (mother)"}`
+              : `card ending ${card}`,
       vendor: tpl.vendor,
       category: tpl.category,
       subcategory: tpl.subcategory,
-      description: `${tpl.subcategory} at ${tpl.vendor}`,
+      description:
+        source_type === "eob"
+          ? `${tpl.subcategory} at ${tpl.vendor} — billed $${billed_amount?.toFixed(2)}, insurance paid $${insurance_paid?.toFixed(2)}`
+          : `${tpl.subcategory} at ${tpl.vendor}`,
       quote:
         source_type === "payment_app"
           ? `${tpl.subcategory} — ${tpl.vendor}`
           : source_type === "bank"
             ? `${tpl.vendor.toUpperCase()} $${amount.toFixed(2)}`
-            : `${tpl.vendor}  $${amount.toFixed(2)}`,
+            : source_type === "eob"
+              ? `${tpl.vendor} — billed $${billed_amount?.toFixed(2)}, ins paid $${insurance_paid?.toFixed(2)}, patient resp $${amount.toFixed(2)}`
+              : `${tpl.vendor}  $${amount.toFixed(2)}`,
       source_type,
       source_index,
+      billed_amount,
+      insurance_paid,
     };
   });
 

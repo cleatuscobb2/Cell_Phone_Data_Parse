@@ -160,6 +160,7 @@ export default function MessageSummarizer() {
   const [caseCounty, setCaseCounty] = useState("");
   const [caseProfile, setCaseProfile] = useState({});
   const [receiptFiles, setReceiptFiles] = useState([]);
+  const [eobFiles, setEobFiles] = useState([]);
   const [paymentCsvFiles, setPaymentCsvFiles] = useState([]);
   const [bankCsvFiles, setBankCsvFiles] = useState([]);
   const [cardLookup, setCardLookup] = useState({});
@@ -250,6 +251,7 @@ export default function MessageSummarizer() {
         form.append("case_profile", JSON.stringify(caseProfile));
       }
       for (const f of receiptFiles) form.append("receipt_files", f);
+      for (const f of eobFiles) form.append("eob_files", f);
       for (const f of paymentCsvFiles) form.append("payment_files", f);
       for (const f of bankCsvFiles) form.append("bank_files", f);
       if (Object.keys(cardLookup).length > 0) {
@@ -455,9 +457,11 @@ export default function MessageSummarizer() {
             </p>
             <FinancialUpload
               receipts={receiptFiles}
+              eobs={eobFiles}
               paymentCsvs={paymentCsvFiles}
               bankCsvs={bankCsvFiles}
               onReceiptsChange={setReceiptFiles}
+              onEobsChange={setEobFiles}
               onPaymentCsvsChange={setPaymentCsvFiles}
               onBankCsvsChange={setBankCsvFiles}
             />
