@@ -652,8 +652,8 @@ TRANSCRIPT_CAP = 2000
 # capped by BOTH transcript size and message count: even a modestly sized
 # but event-dense window can overflow a single structured response.
 CHUNK_CHARS = 300_000          # max transcript size per window
-MAX_MESSAGES_PER_WINDOW = 80   # max messages per window (bounds output size)
-MAX_CHUNKS = 20                # refuse histories that would need more windows
+MAX_MESSAGES_PER_WINDOW = 50   # max messages per window (bounds output size)
+MAX_CHUNKS = 30                # refuse histories that would need more windows
 CHUNK_CONCURRENCY = 4          # windows analyzed in parallel
 
 
