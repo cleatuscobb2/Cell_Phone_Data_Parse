@@ -134,8 +134,8 @@ const MONTH_X = { interval: 0, height: 56, tick: <MonthTick /> };
 function Panel({ title, subtitle, accent, children }) {
   return (
     <section
-      className={`rounded-xl border bg-white p-5 shadow-sm ${
-        accent ? "border-rose-200" : "border-slate-200"
+      className={`rounded-2xl bg-white p-6 shadow-md shadow-indigo-100/30 ring-1 ${
+        accent ? "ring-rose-200" : "ring-slate-200"
       }`}
     >
       <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -380,14 +380,14 @@ export default function CustodyReport({ data }) {
             <button
               onClick={downloadPdf}
               disabled={pdfBusy}
-              className="rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full bg-gradient-to-r from-rose-600 to-rose-500 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200 transition hover:from-rose-700 hover:to-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pdfBusy ? "Generating PDF…" : "Download PDF Report"}
             </button>
             <button
               onClick={downloadXlsx}
               disabled={xlsxBusy}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-200 transition hover:from-emerald-700 hover:to-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {xlsxBusy ? "Building Excel…" : "Download Evidence (Excel)"}
             </button>

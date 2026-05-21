@@ -113,10 +113,10 @@ function DropZone({ label, hint, accept, files, onChange }) {
           append(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-7 text-center transition ${
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-7 text-center transition ${
           dragOver
             ? "border-indigo-400 bg-indigo-50"
-            : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50"
+            : "border-slate-300 hover:border-indigo-300 hover:bg-slate-50/60"
         }`}
       >
         <input
@@ -334,19 +334,26 @@ export default function MessageSummarizer() {
   const stateIntake = getStateIntake(caseState);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-800">
-          Message History Summarizer
-        </h1>
-        <p className="text-sm text-slate-500">
-          Your messages are processed in memory for analysis and never stored.
-        </p>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-amber-50">
+      <div className="mx-auto max-w-5xl space-y-6 p-6">
+        <header>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-md shadow-indigo-200">
+              C
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Casefile</h1>
+              <p className="text-sm text-slate-500">
+                Your custody record — from your own messages, receipts, and statements.
+                Processed in memory, never stored.
+              </p>
+            </div>
+          </div>
+        </header>
 
       {/* --- Upload + controls --- */}
-      <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+      <div className="space-y-4 rounded-2xl bg-white p-6 shadow-lg shadow-indigo-100/40 ring-1 ring-slate-200">
+        <div className="inline-flex gap-1 rounded-full bg-white p-1 text-sm shadow-sm ring-1 ring-slate-200">
           {[
             ["summary", "General Summary"],
             ["custody", "Custody Analysis"],
@@ -354,10 +361,10 @@ export default function MessageSummarizer() {
             <button
               key={m}
               onClick={() => switchMode(m)}
-              className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
                 mode === m
-                  ? "bg-white text-indigo-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                  : "text-slate-500 hover:text-slate-800"
               }`}
             >
               {label}
@@ -603,7 +610,7 @@ export default function MessageSummarizer() {
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="ml-auto rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ml-auto rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-200 transition hover:from-indigo-700 hover:to-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading
               ? isCustody
@@ -834,6 +841,7 @@ export default function MessageSummarizer() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
