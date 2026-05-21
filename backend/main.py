@@ -883,35 +883,36 @@ def _structured_extract(
     system_text: str,
     user_content,
     max_tokens: int = 16000,
-    use_thinking: bool = True,
+    use_thinking: bool = False,  # kept for signature compatibility — unused
 ) -> BaseModel:
     """Call Claude with the output model's JSON schema as a NON-strict tool.
 
-    `messages.parse(output_format=...)` compiles a strict grammar from the
+    messages.parse(output_format=...) compiles a strict grammar from the
     schema; for our nested CustodyExtraction shape that grammar exceeds
     Anthropic's compiled-size limit. A non-strict tool gives the model the
     same schema as guidance without the hard grammar — we Pydantic-validate
-    the model's tool_use payload after. Same prompt, same caching, same
-    adaptive thinking; just a looser constraint."""
-    kwargs: dict = {
-        "model": MODEL,
-        "max_tokens": max_tokens,
-        "system": [{
+    the tool_use payload after.
+
+    Note: `thinking` is incompatible with a forced tool_choice on this
+    model, so it is not enabled here — quality with Opus on these
+    extractions is already strong without it."""
+    _ = use_thinking  # noqa: F841 — signature kept stable for callers
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        system=[{
             "type": "text",
             "text": system_text,
             "cache_control": {"type": "ephemeral"},
         }],
-        "messages": [{"role": "user", "content": user_content}],
-        "tools": [{
+        messages=[{"role": "user", "content": user_content}],
+        tools=[{
             "name": "submit",
             "description": "Submit the structured analysis.",
             "input_schema": output_model.model_json_schema(),
         }],
-        "tool_choice": {"type": "tool", "name": "submit"},
-    }
-    if use_thinking:
-        kwargs["thinking"] = {"type": "adaptive"}
-    response = client.messages.create(**kwargs)
+        tool_choice={"type": "tool", "name": "submit"},
+    )
     if response.stop_reason == "max_tokens":
         raise HTTPException(
             413,
