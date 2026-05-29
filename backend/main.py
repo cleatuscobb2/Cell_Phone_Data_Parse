@@ -943,29 +943,9 @@ def _structured_extract(
         )
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit":
-            payload = _coerce_tool_payload(block.input)
             try:
-                return output_model.model_validate(payload)
-            except ValidationError as ve:
-                # Log what the model actually produced so we can see whether
-                # the failure is truncation (incomplete JSON), a type mismatch
-                # we can coerce, or a required field the prompt should ask for.
-                import sys
-                print(
-                    f"[_structured_extract] ValidationError for {output_model.__name__}: "
-                    f"{ve.error_count()} error(s)",
-                    file=sys.stderr, flush=True,
-                )
-                for err in ve.errors()[:5]:
-                    print(f"  - {err.get('loc')}: {err.get('type')} — {err.get('msg')}",
-                          file=sys.stderr, flush=True)
-                try:
-                    import json as _json
-                    preview = _json.dumps(block.input)[:1500]
-                    print(f"  payload preview: {preview}",
-                          file=sys.stderr, flush=True)
-                except Exception:
-                    pass
+                return output_model.model_validate(_coerce_tool_payload(block.input))
+            except ValidationError:
                 raise HTTPException(
                     413,
                     "A time window produced more events than fit in one response. "
