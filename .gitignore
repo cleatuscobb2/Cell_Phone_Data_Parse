@@ -2,6 +2,10 @@
 .env
 .env.local
 .env.*.local
+# Google OAuth / service-account credential downloads
+client_secret_*.json
+*-service-account*.json
+serviceAccountKey*.json
 
 # Python
 .venv/
