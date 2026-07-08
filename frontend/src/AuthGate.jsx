@@ -37,12 +37,11 @@ function SignIn() {
   return (
     <Centered>
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <h1 className="text-xl font-bold text-slate-800">
-          Message History Summarizer
-        </h1>
+        <h1 className="text-xl font-bold text-slate-800">Casefile</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Sign in to analyze your text and email history. Your data is sent
-          only to your own backend for processing and is not stored.
+          Sign in to build your custody record from your own messages,
+          receipts, and statements. Your data is sent only to your own
+          backend for processing and is not stored.
         </p>
         <button
           onClick={handleSignIn}

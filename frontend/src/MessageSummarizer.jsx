@@ -36,17 +36,29 @@ import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
 import { getIdToken } from "./firebase.js";
 
-// Local dev defaults to the FastAPI proxy; production sets VITE_API_BASE to
-// the deployed Firebase function URL. The default uses the explicit IPv4
-// loopback (127.0.0.1, not "localhost") because the backend binds IPv4 only
-// — "localhost" can resolve to IPv6 (::1) and fail to connect.
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+// Local dev defaults to the FastAPI proxy; production must set VITE_API_BASE
+// to the deployed Firebase function URL. The localhost fallback applies ONLY
+// to dev builds — in a production build a missing VITE_API_BASE is a
+// deployment misconfiguration, and silently pointing at the visitor's own
+// machine would surface as an inscrutable "Failed to fetch". Fail loudly
+// instead (see the banner in the component). The dev default uses the
+// explicit IPv4 loopback (127.0.0.1, not "localhost") because the backend
+// binds IPv4 only — "localhost" can resolve to IPv6 (::1) and fail.
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 /**
  * fetch() against the backend, attaching the Firebase ID token when the user
  * is signed in. With auth disabled (local dev) no header is added.
  */
 async function apiFetch(path, options = {}) {
+  if (!API_BASE) {
+    throw new Error(
+      "This deployment has no backend configured (VITE_API_BASE is not set). " +
+        "Set it in the hosting dashboard and redeploy.",
+    );
+  }
   const token = await getIdToken();
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -350,6 +362,20 @@ export default function MessageSummarizer() {
             </div>
           </div>
         </header>
+
+      {/* Deployment misconfiguration — surface it instead of letting every
+          request die with an opaque "Failed to fetch". */}
+      {!API_BASE && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          <p className="font-semibold">This deployment has no backend configured.</p>
+          <p className="mt-1">
+            The <code className="font-mono">VITE_API_BASE</code> environment
+            variable was not set when this site was built, so analysis
+            requests have nowhere to go. Set it to the deployed backend URL in
+            the hosting dashboard and redeploy.
+          </p>
+        </div>
+      )}
 
       {/* --- Upload + controls --- */}
       <div className="space-y-4 rounded-2xl bg-white p-6 shadow-lg shadow-indigo-100/40 ring-1 ring-slate-200">
