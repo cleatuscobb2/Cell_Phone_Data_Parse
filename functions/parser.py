@@ -36,21 +36,68 @@ class Message:
     attachments: list[str] = field(default_factory=list)
 
 
-# Candidate key names across the export variants we accept.
-_BODY_KEYS = ("body", "text", "message", "content", "snippet")
-_SENDER_KEYS = ("sender", "from", "author", "name", "contact_name")
+# Candidate key names across the export variants we accept. Lookup is
+# case- and punctuation-insensitive (see _first), so these are written in
+# normalized form: lowercase with underscores. "message_date" etc. cover
+# iMazing / SMS-export CSV headers like "Message Date".
+_BODY_KEYS = (
+    "body", "text", "message", "content", "snippet",
+    "message_body", "text_body", "sms",
+)
+_SENDER_KEYS = (
+    "sender", "from", "author", "name", "contact_name",
+    "sender_id", "sender_name", "from_number", "phone_number",
+)
 # Thread identifiers — the other party, stable across both directions. "name"
 # is excluded here: at message level it usually denotes the sender, not the
 # thread, so it would mis-bucket outgoing messages.
-_CONVO_KEYS = ("conversation", "thread", "title", "with", "address", "contact")
-_TIME_KEYS = ("timestamp", "date", "time", "date_sent", "sent_at", "datetime")
+_CONVO_KEYS = (
+    "conversation", "thread", "title", "with", "address", "contact",
+    "chat_session", "conversation_title", "thread_id",
+)
+_TIME_KEYS = (
+    "timestamp", "date", "time", "date_sent", "sent_at", "datetime",
+    "message_date", "readable_date", "sent_date", "received_date",
+    "created_at",
+)
+
+
+def _norm_key(k: Any) -> str:
+    """Normalize a column/key name for tolerant matching: real exports use
+    'Message Date', 'Body', 'Sender ID', etc."""
+    return str(k).strip().lower().replace(" ", "_").replace("-", "_")
 
 
 def _first(d: dict, keys: tuple[str, ...]) -> Any:
+    # Exact match first (cheap, preserves old behavior), then normalized.
     for k in keys:
         if k in d and d[k] not in (None, ""):
             return d[k]
+    normalized = {_norm_key(k): v for k, v in d.items()}
+    for k in keys:
+        v = normalized.get(k)
+        if v not in (None, ""):
+            return v
     return None
+
+
+def sample_columns(data: Any, limit: int = 12) -> str:
+    """The column/key names of the first message-like row — used to build
+    an actionable error when a file parses to zero messages."""
+    row: Any = None
+    if isinstance(data, dict):
+        convos = data.get("conversations")
+        if isinstance(convos, list) and convos and isinstance(convos[0], dict):
+            msgs = convos[0].get("messages")
+            if isinstance(msgs, list) and msgs:
+                row = msgs[0]
+        elif isinstance(data.get("messages"), list) and data["messages"]:
+            row = data["messages"][0]
+    elif isinstance(data, list) and data:
+        row = data[0]
+    if not isinstance(row, dict):
+        return ""
+    return ", ".join(list(map(str, row.keys()))[:limit])
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -73,7 +120,11 @@ def _parse_timestamp(value: Any) -> datetime | None:
         except ValueError:
             pass
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S",
-                    "%m/%d/%Y %H:%M", "%b %d, %Y %I:%M:%S %p", "%Y-%m-%d"):
+                    "%m/%d/%Y %H:%M", "%b %d, %Y %I:%M:%S %p", "%Y-%m-%d",
+                    # 12-hour clocks — common in iMazing / phone-tool CSVs.
+                    "%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p",
+                    "%m/%d/%y %I:%M %p", "%m/%d/%y %H:%M",
+                    "%b %d, %Y %I:%M %p", "%d %b %Y %H:%M:%S"):
             try:
                 return datetime.strptime(v, fmt)
             except ValueError:
@@ -86,12 +137,14 @@ def _is_from_me(raw: dict) -> bool:
     for key in ("is_from_me", "from_me", "outgoing"):
         if isinstance(raw.get(key), bool):
             return raw[key]
-    msg_type = raw.get("type")
-    if msg_type in (2, "2", "sent", "outgoing", "MESSAGE_STATUS_OUTGOING"):
+    msg_type = _first(raw, ("type",))
+    if isinstance(msg_type, str):
+        msg_type = msg_type.strip().lower()
+    if msg_type in (2, "2", "sent", "outgoing", "message_status_outgoing"):
         return True
     if msg_type in (1, "1", "received", "inbox", "incoming"):
         return False
-    direction = str(raw.get("direction", "")).lower()
+    direction = str(_first(raw, ("direction",)) or "").lower()
     return direction in ("out", "outgoing", "sent")
 
 

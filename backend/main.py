@@ -37,6 +37,7 @@ from parser import (
     messages_to_records,
     parse_emails,
     parse_export,
+    sample_columns,
     search_messages,
     to_condensed_string,
     with_context,
@@ -574,10 +575,23 @@ def _parse_date(value: str | None, field: str) -> date | None:
 
 def _parse_text_upload(raw: bytes, filename: str) -> list:
     """Parse a text-message export into Message objects (channel='text')."""
+    data = _load_export(raw, filename)
     try:
-        return parse_export(_load_export(raw, filename))
+        messages = parse_export(data)
     except ValueError as e:
         raise HTTPException(422, f"Text-message file: {e}")
+    if not messages:
+        # The container parsed but no row had a recognizable message text +
+        # date. Name what we saw so the user (and we) can fix the format.
+        cols = sample_columns(data)
+        raise HTTPException(
+            422,
+            f'"{filename}" was read but no messages were recognized'
+            + (f" — columns found: {cols}" if cols else "")
+            + ". The parser needs a message-text column (e.g. body/text/"
+            "message) and a date column (e.g. date/timestamp).",
+        )
+    return messages
 
 
 def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> list:
