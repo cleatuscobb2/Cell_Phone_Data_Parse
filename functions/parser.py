@@ -46,7 +46,9 @@ _BODY_KEYS = (
 )
 _SENDER_KEYS = (
     "sender", "from", "author", "name", "contact_name",
-    "sender_id", "sender_name", "from_number", "phone_number",
+    # "sender_name" before "sender_id": iMazing carries both, and the
+    # contact's name reads far better in reports than the raw number.
+    "sender_name", "sender_id", "from_number", "phone_number",
 )
 # Thread identifiers — the other party, stable across both directions. "name"
 # is excluded here: at message level it usually denotes the sender, not the
