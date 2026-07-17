@@ -301,6 +301,13 @@ export default function MessageSummarizer() {
           );
         });
         processed.push(out.file);
+        if (out.truncated) {
+          setError(
+            `"${f.name}" is very large — kept the first ` +
+              `${out.count.toLocaleString()} emails. For complete coverage, ` +
+              `export a narrower date range and add it as another file.`,
+          );
+        }
       } catch (err) {
         setError(err.message || `Could not read ${f.name}.`);
       }

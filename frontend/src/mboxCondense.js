@@ -266,52 +266,145 @@ function splitParts(body, boundary) {
     .map((p) => p.replace(/^\r?\n/, ""));
 }
 
+// A single mbox "message" larger than this is dropped rather than held in
+// memory — real emails cap out ~25-50 MB; anything bigger means a corrupt
+// file or one with no recognizable boundaries, which previously grew the
+// buffer until the tab crashed out of memory.
+const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+
+// "\nFrom " — the mbox message separator, as bytes.
+const NEEDLE = new Uint8Array([0x0a, 0x46, 0x72, 0x6f, 0x6d, 0x20]);
+
+// Row cap: ~300 bytes of JSON per condensed email means ~100k rows is what
+// fits the backend's upload budget anyway; beyond it we stop reading and
+// report truncation rather than growing without bound.
+const MAX_ROWS = 100_000;
+
 /**
  * Stream-condense an mbox from any async iterable of Uint8Array chunks.
- * Messages are processed as their "From " boundary arrives, so memory stays
- * bounded by the largest single message, never the file.
+ *
+ * All boundary scanning happens at the BYTE level: only one message's bytes
+ * are ever held (capped), and each message is decoded to text individually.
+ * Never accumulate the stream into a JS string — UTF-16 doubles every byte
+ * and V8's sliced-string retention keeps old buffer generations alive, which
+ * is exactly how the first implementation ran a 2 GB mailbox out of memory.
  */
 export async function condenseMboxChunks(chunks, userEmail, onProgress) {
-  const decoder = new TextDecoder("utf-8", { fatal: false });
   const rows = [];
-  let buffer = "";
-  let bytesSeen = 0;
   let skipped = 0;
+  let bytesSeen = 0;
+  let lastReported = 0;
 
-  const flushMessage = (raw) => {
+  let pending = []; // Uint8Array pieces of the message currently being read
+  let pendingBytes = 0;
+  let overflow = false; // current "message" blew the cap — discard to boundary
+  // Bytes held back between chunks so a separator spanning a chunk edge is
+  // still seen (needle length - 1).
+  let carry = new Uint8Array(0);
+
+  const pendingAdd = (piece) => {
+    if (piece.length === 0 || overflow) {
+      if (overflow) pending = [];
+      return;
+    }
+    if (pendingBytes + piece.length > MAX_MESSAGE_BYTES) {
+      overflow = true;
+      pending = [];
+      pendingBytes = 0;
+      return;
+    }
+    pending.push(piece);
+    pendingBytes += piece.length;
+  };
+
+  const flush = () => {
+    if (overflow) {
+      skipped++;
+      overflow = false;
+      pending = [];
+      pendingBytes = 0;
+      return;
+    }
+    if (pendingBytes === 0) return;
+    const buf = new Uint8Array(pendingBytes);
+    let o = 0;
+    for (const p of pending) {
+      buf.set(p, o);
+      o += p.length;
+    }
+    pending = [];
+    pendingBytes = 0;
+    const raw = new TextDecoder("utf-8", { fatal: false })
+      .decode(buf)
+      .replace(/^From .*\r?\n/, ""); // the separator line itself
     if (!raw.trim()) return;
     const row = condenseOneEmail(raw, userEmail);
     if (row) rows.push(row);
     else skipped++;
   };
 
-  for await (const chunk of chunks) {
-    bytesSeen += chunk.byteLength ?? chunk.length ?? 0;
-    buffer += decoder.decode(chunk, { stream: true });
-
-    // Extract every complete message currently in the buffer. The mbox
-    // separator is a line starting with "From " (note the space).
-    for (;;) {
-      const isFirst = buffer.startsWith("From ");
-      const next = buffer.indexOf("\nFrom ", isFirst ? 5 : 0);
-      if (next === -1) break;
-      const head = buffer.slice(0, next);
-      buffer = buffer.slice(next + 1);
-      // Drop the separator line itself from the extracted message.
-      flushMessage(head.replace(/^From .*\r?\n/, ""));
+  let truncated = false;
+  for await (const c of chunks) {
+    if (rows.length >= MAX_ROWS) {
+      truncated = true;
+      break; // exits the loop → the underlying stream reader is released
     }
-    if (onProgress) onProgress(bytesSeen, rows.length);
+    const chunk = c instanceof Uint8Array ? c : new Uint8Array(c);
+    bytesSeen += chunk.length;
+
+    // Search space: held-back tail of the previous chunk + this chunk.
+    const hay = new Uint8Array(carry.length + chunk.length);
+    hay.set(carry, 0);
+    hay.set(chunk, carry.length);
+
+    let segStart = 0;
+    let i = 0;
+    // Only positions where the whole needle fits are decidable now; the
+    // last needle-1 bytes are held back for the next iteration.
+    while (i + NEEDLE.length <= hay.length) {
+      const nl = hay.indexOf(0x0a, i);
+      if (nl === -1 || nl + NEEDLE.length > hay.length) break;
+      let match = true;
+      for (let k = 1; k < NEEDLE.length; k++) {
+        if (hay[nl + k] !== NEEDLE[k]) {
+          match = false;
+          break;
+        }
+      }
+      if (!match) {
+        i = nl + 1;
+        continue;
+      }
+      // Boundary: everything through the newline belongs to the message
+      // being read; the "From ..." line after it starts the next one.
+      pendingAdd(hay.subarray(segStart, nl + 1));
+      flush();
+      segStart = nl + 1;
+      i = nl + 1;
+    }
+
+    const holdFrom = Math.max(segStart, hay.length - (NEEDLE.length - 1));
+    pendingAdd(hay.subarray(segStart, holdFrom));
+    carry = hay.slice(holdFrom); // copy — a subarray would retain `hay`
+
+    if (onProgress && bytesSeen - lastReported >= 8 * 1024 * 1024) {
+      lastReported = bytesSeen;
+      onProgress(bytesSeen, rows.length);
+    }
   }
-  buffer += decoder.decode();
-  flushMessage(buffer.replace(/^From .*\r?\n/, ""));
+  if (!truncated) {
+    pendingAdd(carry);
+    flush();
+  }
+  if (onProgress) onProgress(bytesSeen, rows.length);
 
   rows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return { rows, skipped };
+  return { rows, skipped, truncated };
 }
 
 /** Browser entry point: File → compact JSON File the backend accepts. */
 export async function condenseMboxFile(file, userEmail, onProgress) {
-  const { rows, skipped } = await condenseMboxChunks(
+  const { rows, skipped, truncated } = await condenseMboxChunks(
     file.stream(),
     userEmail,
     onProgress,
@@ -327,6 +420,7 @@ export async function condenseMboxFile(file, userEmail, onProgress) {
   return {
     file: new File([json], name, { type: "application/json" }),
     count: rows.length,
+    truncated: Boolean(truncated),
     originalBytes: file.size,
     condensedBytes: json.length,
   };
