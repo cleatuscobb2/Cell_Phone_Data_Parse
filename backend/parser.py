@@ -161,6 +161,13 @@ def _normalize_message(raw: dict, conversation: str) -> Message | None:
     # than the sender — keying on sender would split each direction apart.
     if not conversation:
         conversation = sender if not from_me else "Message History"
+    # Attachment names survive the JSON round-trip (the browser-side mbox
+    # condenser emits them) so the report's attachment suggestions work.
+    raw_atts = raw.get("attachments")
+    attachments = (
+        [str(a) for a in raw_atts if a]
+        if isinstance(raw_atts, list) else []
+    )
     # Drop tzinfo so naive and aware exports can be compared/sorted uniformly.
     return Message(
         timestamp=ts.replace(tzinfo=None),
@@ -168,6 +175,8 @@ def _normalize_message(raw: dict, conversation: str) -> Message | None:
         body=str(body).replace("\n", " ").strip(),
         conversation=conversation,
         from_me=from_me,
+        channel=str(raw.get("channel") or "text"),
+        attachments=attachments,
     )
 
 

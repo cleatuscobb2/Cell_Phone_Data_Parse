@@ -35,6 +35,11 @@ import CardLookup from "./CardLookup.jsx";
 import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
 import { getIdToken } from "./firebase.js";
+import { condenseMboxFile, CONDENSE_THRESHOLD } from "./mboxCondense.js";
+
+// Stay under the backend's ~32 MB per-request cap with headroom for
+// multipart framing.
+const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 // Local dev defaults to the FastAPI proxy; production must set VITE_API_BASE
 // to the deployed Firebase function URL. The localhost fallback applies ONLY
@@ -232,6 +237,8 @@ export default function MessageSummarizer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  // Progress line while a large mailbox is being condensed in-browser.
+  const [condensing, setCondensing] = useState(null);
 
   // Load the contact roster from every file currently chosen.
   const loadContacts = useCallback(async (texts, emails, email) => {
@@ -264,12 +271,67 @@ export default function MessageSummarizer() {
     setSelectedContact("");
     loadContacts(next, emailFiles, userEmail);
   }
-  function changeEmailFiles(next) {
-    setEmailFiles(next);
+
+  /**
+   * Large mailboxes are condensed in the browser before anything is sent:
+   * the backend caps requests at ~32 MB, and a multi-GB mbox is nearly all
+   * attachment payloads the analysis never reads. Only sender / date /
+   * subject / cleaned text (plus attachment names) leave this device.
+   */
+  async function changeEmailFiles(next) {
     setResult(null);
     setError("");
     setSelectedContact("");
-    loadContacts(textFiles, next, userEmail);
+    const processed = [];
+    for (const f of next) {
+      const isBigMbox =
+        /\.mbox$/i.test(f.name) && f.size >= CONDENSE_THRESHOLD;
+      if (!isBigMbox) {
+        processed.push(f);
+        continue;
+      }
+      try {
+        const mb = (f.size / 1048576).toFixed(0);
+        setCondensing(`Reading ${f.name} (${mb} MB) in your browser…`);
+        const out = await condenseMboxFile(f, userEmail, (bytes, count) => {
+          const pct = Math.min(100, Math.round((bytes / f.size) * 100));
+          setCondensing(
+            `Condensing ${f.name} — ${pct}% · ${count.toLocaleString()} emails` +
+              " · your mailbox never leaves this device",
+          );
+        });
+        processed.push(out.file);
+      } catch (err) {
+        setError(err.message || `Could not read ${f.name}.`);
+      }
+    }
+    setCondensing(null);
+    setEmailFiles(processed);
+    loadContacts(textFiles, processed, userEmail);
+  }
+
+  /** Everything queued for upload, across all zones — for the size preflight. */
+  function allQueuedFiles() {
+    return [
+      ...textFiles, ...emailFiles, ...receiptFiles,
+      ...eobFiles, ...paymentCsvFiles, ...bankCsvFiles,
+    ];
+  }
+
+  /** Reject over-cap payloads with a useful message instead of letting the
+      backend's 32 MB request limit surface as "Failed to fetch". */
+  function payloadTooLarge() {
+    const files = allQueuedFiles();
+    const total = files.reduce((s, f) => s + f.size, 0);
+    if (total <= MAX_UPLOAD_BYTES) return null;
+    const biggest = files.reduce((a, b) => (a.size >= b.size ? a : b));
+    return (
+      `Upload total is ${(total / 1048576).toFixed(0)} MB — the analysis ` +
+      `service accepts at most ${(MAX_UPLOAD_BYTES / 1048576).toFixed(0)} MB ` +
+      `per request. The largest file is "${biggest.name}" ` +
+      `(${(biggest.size / 1048576).toFixed(0)} MB); narrow the export's date ` +
+      `range or split it into smaller files.`
+    );
   }
 
   function switchMode(m) {
@@ -285,6 +347,11 @@ export default function MessageSummarizer() {
     }
     if (mode === "custody" && !otherParent.trim()) {
       setError("Enter the other parent's name for the custody analysis.");
+      return;
+    }
+    const sizeError = payloadTooLarge();
+    if (sizeError) {
+      setError(sizeError);
       return;
     }
     setLoading(true);
@@ -409,14 +476,21 @@ export default function MessageSummarizer() {
           />
           <DropZone
             label="Emails"
-            hint="Drop .eml or .mbox files"
+            hint="Drop .eml or .mbox files — any size"
             accept=".eml,.mbox,.json,.csv,message/rfc822"
             files={emailFiles}
             onChange={changeEmailFiles}
           />
         </div>
+        {condensing && (
+          <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-500" />
+            {condensing}
+          </div>
+        )}
         <label className="flex flex-col text-xs font-medium text-slate-600">
-          Your email address (optional — so we can tell which emails you sent)
+          Your email address (optional — enter it BEFORE adding a large
+          mailbox, so your sent emails are attributed to you)
           <input
             type="email"
             value={userEmail}
