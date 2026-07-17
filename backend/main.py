@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
+import gzip
 import io
 import json
 import os
@@ -573,8 +574,27 @@ def _parse_date(value: str | None, field: str) -> date | None:
         raise HTTPException(422, f"{field} must be YYYY-MM-DD, got: {value!r}")
 
 
+def _maybe_gunzip(raw: bytes, filename: str) -> tuple[bytes, str]:
+    """Transparently decompress a gzipped upload (sniffed via magic bytes).
+    The browser gzips large text-based files so multiple condensed
+    mailboxes fit the ~32 MB request cap."""
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            raise HTTPException(
+                422,
+                f'"{filename}" looks gzip-compressed but could not be '
+                "decompressed.",
+            )
+        if filename.lower().endswith(".gz"):
+            filename = filename[:-3]
+    return raw, filename
+
+
 def _parse_text_upload(raw: bytes, filename: str) -> list:
     """Parse a text-message export into Message objects (channel='text')."""
+    raw, filename = _maybe_gunzip(raw, filename)
     data = _load_export(raw, filename)
     try:
         messages = parse_export(data)
@@ -600,6 +620,7 @@ def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> li
     .eml/.mbox go through the email parser; a JSON/CSV email export falls
     back to the structured parser and is tagged as email.
     """
+    raw, filename = _maybe_gunzip(raw, filename or "")
     name = (filename or "").lower()
     if name.endswith((".json", ".csv")):
         try:

@@ -35,7 +35,12 @@ import CardLookup from "./CardLookup.jsx";
 import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
 import { getIdToken } from "./firebase.js";
-import { condenseMboxFile, CONDENSE_THRESHOLD } from "./mboxCondense.js";
+import {
+  condenseMboxFile,
+  CONDENSE_THRESHOLD,
+  gzipFile,
+  shouldGzip,
+} from "./mboxCondense.js";
 
 // Stay under the backend's ~32 MB per-request cap with headroom for
 // multipart framing.
@@ -264,12 +269,16 @@ export default function MessageSummarizer() {
   }, []);
 
   // Updating either file list resets scope and reloads the contact roster.
-  function changeTextFiles(next) {
-    setTextFiles(next);
+  async function changeTextFiles(next) {
     setResult(null);
     setError("");
     setSelectedContact("");
-    loadContacts(next, emailFiles, userEmail);
+    const processed = [];
+    for (const f of next) {
+      processed.push(shouldGzip(f) ? await gzipFile(f) : f);
+    }
+    setTextFiles(processed);
+    loadContacts(processed, emailFiles, userEmail);
   }
 
   /**
@@ -287,7 +296,7 @@ export default function MessageSummarizer() {
       const isBigMbox =
         /\.mbox$/i.test(f.name) && f.size >= CONDENSE_THRESHOLD;
       if (!isBigMbox) {
-        processed.push(f);
+        processed.push(shouldGzip(f) ? await gzipFile(f) : f);
         continue;
       }
       try {
@@ -300,7 +309,7 @@ export default function MessageSummarizer() {
               " · your mailbox never leaves this device",
           );
         });
-        processed.push(out.file);
+        processed.push(shouldGzip(out.file) ? await gzipFile(out.file) : out.file);
         if (out.truncated) {
           setError(
             `"${f.name}" is very large — kept the first ` +

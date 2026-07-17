@@ -428,3 +428,27 @@ export async function condenseMboxFile(file, userEmail, onProgress) {
 
 /** Files at or above this size get condensed in the browser before upload. */
 export const CONDENSE_THRESHOLD = 4 * 1024 * 1024; // 4 MB
+
+/** Text-ish files at or above this size get gzipped before upload. */
+export const GZIP_THRESHOLD = 1024 * 1024; // 1 MB
+
+/**
+ * Gzip a File in the browser (CompressionStream). JSON/CSV condense ~5-10×,
+ * which is what lets multiple large condensed mailboxes fit the backend's
+ * ~32 MB request cap. Falls back to the original file on old browsers; the
+ * backend gunzips transparently by sniffing the gzip magic bytes.
+ */
+export async function gzipFile(file) {
+  if (typeof CompressionStream === "undefined") return file;
+  const stream = file.stream().pipeThrough(new CompressionStream("gzip"));
+  const blob = await new Response(stream).blob();
+  return new File([blob], file.name + ".gz", { type: "application/gzip" });
+}
+
+/** Whether a file is worth gzipping before upload (large + text-based). */
+export function shouldGzip(file) {
+  return (
+    file.size >= GZIP_THRESHOLD &&
+    /\.(json|csv|mbox|eml|txt)$/i.test(file.name)
+  );
+}
