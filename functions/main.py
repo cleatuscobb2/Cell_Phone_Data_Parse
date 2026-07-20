@@ -52,6 +52,15 @@ from parser import (
     to_condensed_string,
     with_context,
 )
+from relevance import (
+    FLAG_TOOL,
+    RELEVANCE_PROMPT,
+    build_classify_content,
+    chunk_messages,
+    even_sample,
+    expand_context,
+    prefilter,
+)
 
 firebase_admin.initialize_app()
 
@@ -716,6 +725,12 @@ MAX_MESSAGES_PER_WINDOW = 150
 MAX_CHUNKS = 60                # refuse histories that would need more windows
 CHUNK_CONCURRENCY = 8          # windows analyzed in parallel
 
+# Phase 2 relevance filter: a cheap model triages messages for custody
+# relevance so the expensive extraction only sees the relevant slice.
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+CLASSIFY_CONCURRENCY = int(os.getenv("CLASSIFY_CONCURRENCY", "10"))
+FILTER_THRESHOLD = int(os.getenv("FILTER_THRESHOLD", "5000"))
+
 
 # --- /summarize ---------------------------------------------------------------
 
@@ -1092,6 +1107,64 @@ def _extract_chunk_resilient(chunk_messages: list, context_lines: list[str],
         f"{_SKIP_MARK}One message dated {when} could not be analyzed and was skipped."
     ]
     return ext
+
+
+def _classify_chunk(chunk: list, children: list[str],
+                    other_parent: str | None) -> list[int]:
+    """Cheap-model triage of one chunk. Returns the 1-based positions of the
+    custody-relevant messages. On any failure it keeps the whole chunk —
+    the filter must never lose evidence, only ever spend a bit more."""
+    content = build_classify_content(chunk, children, other_parent)
+    keep_all = list(range(1, len(chunk) + 1))
+    try:
+        r = client().messages.create(
+            model=CLASSIFIER_MODEL,
+            max_tokens=2000,
+            system=_system_blocks(RELEVANCE_PROMPT),
+            messages=[{"role": "user", "content": content}],
+            tools=[FLAG_TOOL],
+            tool_choice={"type": "tool", "name": "flag_relevant"},
+        )
+    except anthropic.APIStatusError:
+        return keep_all
+    for block in r.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "flag_relevant":
+            nums = (block.input or {}).get("relevant", [])
+            return [int(n) for n in nums if isinstance(n, int) and 1 <= n <= len(chunk)]
+    return keep_all
+
+
+def _filter_relevant(messages: list, children: list[str],
+                     other_parent: str | None) -> tuple[list, dict, list]:
+    """Tier 0 + Tier 1. Returns (analysis_messages, stats, dropped_sample).
+    The caller keeps the FULL message list for the report appendix so nothing
+    is hidden. Synchronous — classify chunks run in a thread pool."""
+    kept0, dropped0 = prefilter(messages)
+    chunks = list(chunk_messages(kept0))
+
+    def run(indexed):
+        start, chunk = indexed
+        local = _classify_chunk(chunk, children, other_parent)
+        return {start + (n - 1) for n in local}
+
+    relevant_idx: set = set()
+    if chunks:
+        with ThreadPoolExecutor(max_workers=CLASSIFY_CONCURRENCY) as pool:
+            for s in pool.map(run, chunks):
+                relevant_idx |= s
+    analysis = [kept0[i] for i in expand_context(len(kept0), relevant_idx)]
+
+    analyzed_ids = {id(m) for m in analysis}
+    dropped_all = [m for m in messages if id(m) not in analyzed_ids]
+    stats = {
+        "scanned": len(messages),
+        "prefiltered_out": len(dropped0),
+        "flagged_relevant": len(relevant_idx),
+        "analyzed_with_context": len(analysis),
+        "dropped": len(dropped_all),
+        "classifier": CLASSIFIER_MODEL,
+    }
+    return analysis, stats, messages_to_records(even_sample(dropped_all, 20))
 
 
 def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
@@ -1524,7 +1597,9 @@ def handle_custody(req: https_fn.Request) -> dict:
     if not messages:
         raise ApiError(422, "No messages found for the selected filters.")
 
-    stats = compute_stats(messages)
+    # Full scoped set — kept for the appendix + stats regardless of filtering.
+    all_messages = messages
+    stats = compute_stats(all_messages)
 
     # 2. Case context for the model (the system prompt stays static/cached).
     kids = [c.strip() for c in (form.get("children") or "").split(",") if c.strip()]
@@ -1546,6 +1621,23 @@ def handle_custody(req: https_fn.Request) -> dict:
         except (json.JSONDecodeError, TypeError):
             profile = {}
     context += _case_profile_context(profile)
+
+    # 2b. Relevance filter (Phase 2): cheap-model triage so the expensive
+    #     extraction only sees the custody-relevant slice. Recall-safe — falls
+    #     back to the full set when off or when nothing matches.
+    smart_filter = form.get("smart_filter") or "auto"
+    filter_stats = None
+    dropped_sample: list = []
+    do_filter = smart_filter == "on" or (
+        smart_filter == "auto" and len(all_messages) > FILTER_THRESHOLD
+    )
+    if do_filter and len(all_messages) > 1:
+        filtered, filter_stats, dropped_sample = _filter_relevant(
+            all_messages, kids, other_parent
+        )
+        messages = filtered or all_messages
+        if not filtered:
+            filter_stats["note"] = "Filter matched nothing; analyzed all messages."
 
     # 3. Split into windows. A small history runs as a single pass; a larger
     #    one is analyzed window-by-window (concurrently) and merged.
@@ -1635,13 +1727,16 @@ def handle_custody(req: https_fn.Request) -> dict:
             "other_parent": other_parent,
             "user_role": user_role,
             "children": kids,
-            "transcript_truncated": len(messages) > TRANSCRIPT_CAP,
+            "transcript_truncated": len(all_messages) > TRANSCRIPT_CAP,
             "case_profile": profile,
             # Optional income context for the SCA-FC-106 worksheet; the
             # rest of that form is filled in by the user / attorney.
             "financial_inputs": _parse_financial_inputs(
                 form.get("monthly_gross_income"),
             ),
+            # Relevance-filter provenance (null when the filter didn't run).
+            "filter": filter_stats,
+            "filter_dropped_sample": dropped_sample,
             # Provenance — the settings used to produce this report.
             "model": MODEL,
             "jurisdiction": {
@@ -1656,7 +1751,8 @@ def handle_custody(req: https_fn.Request) -> dict:
         },
         "custody_breakdown": _custody_breakdown(report.childcare_events),
         "report": report.model_dump(),
-        "transcript": messages_to_records(messages[:TRANSCRIPT_CAP]),
+        # The FULL chronological message log (not just the filtered slice).
+        "transcript": messages_to_records(all_messages[:TRANSCRIPT_CAP]),
     }
 
 

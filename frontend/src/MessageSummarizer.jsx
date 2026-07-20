@@ -247,6 +247,8 @@ export default function MessageSummarizer() {
   // Conversation roster filter: true = only two-way threads (real people),
   // hiding one-way senders like newsletters and receipts.
   const [peopleOnly, setPeopleOnly] = useState(true);
+  // Relevance filter: "auto" (on for large runs), "on", or "off".
+  const [smartFilter, setSmartFilter] = useState("auto");
 
   // Load the contact roster from every file currently chosen.
   const loadContacts = useCallback(async (texts, emails, email) => {
@@ -384,6 +386,7 @@ export default function MessageSummarizer() {
     if (startDate) form.append("start_date", startDate);
     if (endDate) form.append("end_date", endDate);
     for (const c of selectedContacts) form.append("contact", c);
+    if (isCustody) form.append("smart_filter", smartFilter);
 
     let endpoint;
     if (mode === "custody") {
@@ -816,6 +819,29 @@ export default function MessageSummarizer() {
                 : "Summarize"}
           </button>
         </div>
+
+        {isCustody && (
+          <label className="flex flex-col text-xs font-medium text-slate-600">
+            Smart filter
+            <select
+              value={smartFilter}
+              onChange={(e) => setSmartFilter(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm sm:w-72"
+            >
+              <option value="auto">
+                Auto — filter large runs (recommended)
+              </option>
+              <option value="on">On — always pre-filter for relevance</option>
+              <option value="off">Off — analyze every message</option>
+            </select>
+            <span className="mt-1 font-normal text-slate-400">
+              A cheap model first drops messages unrelated to the children, so
+              only the relevant slice gets the full (costly) analysis. The
+              complete message log is always kept in the report. Recall-biased —
+              when unsure it keeps the message.
+            </span>
+          </label>
+        )}
 
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>

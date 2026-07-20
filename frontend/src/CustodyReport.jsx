@@ -404,6 +404,21 @@ export default function CustodyReport({ data }) {
         </p>
       )}
 
+      {meta.filter && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-800">
+          <span className="font-semibold">Smart filter applied.</span>{" "}
+          Scanned {meta.filter.scanned.toLocaleString()} messages;{" "}
+          {meta.filter.flagged_relevant.toLocaleString()} flagged as
+          custody-relevant and analyzed in detail
+          {meta.filter.analyzed_with_context
+            ? ` (${meta.filter.analyzed_with_context.toLocaleString()} incl. surrounding context)`
+            : ""}
+          . The full message log is in the appendix; the filter is recall-biased
+          (keeps anything plausibly relevant). Turn it off to analyze every
+          message.
+        </div>
+      )}
+
       {/* Disclaimer — repeated here so it travels with the report. */}
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
         <p className="font-semibold">Read before relying on this for court</p>

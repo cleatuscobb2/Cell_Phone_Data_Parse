@@ -44,6 +44,15 @@ from parser import (
     to_condensed_string,
     with_context,
 )
+from relevance import (
+    FLAG_TOOL,
+    RELEVANCE_PROMPT,
+    build_classify_content,
+    chunk_messages,
+    even_sample,
+    expand_context,
+    prefilter,
+)
 
 # Load .env by absolute path so the key resolves regardless of the cwd
 # uvicorn is launched from. override=True so the file wins over an empty or
@@ -75,6 +84,13 @@ _IS_ANTHROPIC = _BASE_URL == "" or "anthropic.com" in _BASE_URL
 USE_BATCH = os.getenv("USE_BATCH") == "1"
 BATCH_POLL_SECONDS = int(os.getenv("BATCH_POLL_SECONDS", "6"))
 BATCH_MAX_WAIT_SECONDS = int(os.getenv("BATCH_MAX_WAIT_SECONDS", "1500"))
+
+# Phase 2 relevance filter: a cheap model triages messages for custody
+# relevance so the expensive extraction only sees the relevant slice.
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+CLASSIFY_CONCURRENCY = int(os.getenv("CLASSIFY_CONCURRENCY", "10"))
+# "auto" mode turns the filter on once a run exceeds this many messages.
+FILTER_THRESHOLD = int(os.getenv("FILTER_THRESHOLD", "5000"))
 
 
 def _system_blocks(text: str) -> list[dict]:
@@ -1165,6 +1181,65 @@ def _extract_chunk_resilient(chunk_messages: list, context_lines: list[str],
     return ext
 
 
+def _classify_chunk(chunk: list, children: list[str],
+                    other_parent: str | None) -> list[int]:
+    """Cheap-model triage of one chunk. Returns the 1-based positions of the
+    custody-relevant messages. On any failure it keeps the whole chunk — the
+    filter must never *lose* evidence, only ever spend a bit more downstream."""
+    content = build_classify_content(chunk, children, other_parent)
+    keep_all = list(range(1, len(chunk) + 1))
+    try:
+        r = client.messages.create(
+            model=CLASSIFIER_MODEL,
+            max_tokens=2000,
+            system=_system_blocks(RELEVANCE_PROMPT),
+            messages=[{"role": "user", "content": content}],
+            tools=[FLAG_TOOL],
+            tool_choice={"type": "tool", "name": "flag_relevant"},
+        )
+    except anthropic.APIStatusError:
+        return keep_all
+    for block in r.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "flag_relevant":
+            nums = (block.input or {}).get("relevant", [])
+            out = [int(n) for n in nums if isinstance(n, int) and 1 <= n <= len(chunk)]
+            return out
+    return keep_all  # model didn't call the tool → keep all (recall-safe)
+
+
+async def _filter_relevant(messages: list, children: list[str],
+                           other_parent: str | None) -> tuple[list, dict, list]:
+    """Tier 0 + Tier 1. Returns (analysis_messages, stats, dropped_sample).
+    analysis_messages is the relevant slice (+ conversational context) that the
+    expensive extraction should run on; the caller keeps the FULL message list
+    for the report appendix so nothing is hidden."""
+    kept0, dropped0 = prefilter(messages)
+    chunks = list(chunk_messages(kept0))
+    sem = asyncio.Semaphore(CLASSIFY_CONCURRENCY)
+
+    async def run(start: int, chunk: list) -> set[int]:
+        async with sem:
+            local = await asyncio.to_thread(
+                _classify_chunk, chunk, children, other_parent)
+            return {start + (n - 1) for n in local}
+
+    sets = await asyncio.gather(*(run(s, c) for s, c in chunks)) if chunks else []
+    relevant_idx: set[int] = set().union(*sets) if sets else set()
+    analysis = [kept0[i] for i in expand_context(len(kept0), relevant_idx)]
+
+    analyzed_ids = {id(m) for m in analysis}
+    dropped_all = [m for m in messages if id(m) not in analyzed_ids]
+    stats = {
+        "scanned": len(messages),
+        "prefiltered_out": len(dropped0),
+        "flagged_relevant": len(relevant_idx),
+        "analyzed_with_context": len(analysis),
+        "dropped": len(dropped_all),
+        "classifier": CLASSIFIER_MODEL,
+    }
+    return analysis, stats, messages_to_records(even_sample(dropped_all, 20))
+
+
 def _window_note(idx: int, total: int, chunk: list) -> str:
     return (
         f"This is time window {idx + 1} of {total}, covering "
@@ -1699,6 +1774,7 @@ async def custody_report(
     contact: list[str] | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
+    smart_filter: str = Form("auto"),  # "auto" | "on" | "off"
     card_lookup: str | None = Form(None),
     monthly_gross_income: str | None = Form(None),
 ) -> dict:
@@ -1720,7 +1796,10 @@ async def custody_report(
     if not messages:
         raise HTTPException(422, "No messages found for the selected filters.")
 
-    stats = compute_stats(messages)
+    # The full scoped set — kept for the report appendix + stats regardless of
+    # relevance filtering, so nothing is hidden from the record.
+    all_messages = messages
+    stats = compute_stats(all_messages)
 
     # 2. Case context for the model (the system prompt stays static/cached).
     kids = [c.strip() for c in (children or "").split(",") if c.strip()]
@@ -1741,6 +1820,23 @@ async def custody_report(
         except (json.JSONDecodeError, TypeError):
             profile = {}
     context += _case_profile_context(profile)
+
+    # 2b. Relevance filter (Phase 2): triage with a cheap model so the
+    #     expensive extraction only sees the custody-relevant slice. "auto"
+    #     engages it once the run is large; extraction still runs on the full
+    #     set below when the filter is off or matches nothing (recall-safe).
+    filter_stats: dict | None = None
+    dropped_sample: list = []
+    do_filter = smart_filter == "on" or (
+        smart_filter == "auto" and len(all_messages) > FILTER_THRESHOLD
+    )
+    if do_filter and len(all_messages) > 1:
+        filtered, filter_stats, dropped_sample = await _filter_relevant(
+            all_messages, kids, other_parent
+        )
+        messages = filtered or all_messages
+        if not filtered:
+            filter_stats["note"] = "Filter matched nothing; analyzed all messages."
 
     # 3. Split into windows. A small history runs as a single pass; a larger
     #    one is analyzed window-by-window (concurrently) and merged.
@@ -1838,11 +1934,14 @@ async def custody_report(
             "other_parent": other_parent,
             "user_role": user_role,
             "children": kids,
-            "transcript_truncated": len(messages) > TRANSCRIPT_CAP,
+            "transcript_truncated": len(all_messages) > TRANSCRIPT_CAP,
             "case_profile": profile,
             # Optional income context for the SCA-FC-106 worksheet; the
             # rest of that form is filled in by the user / attorney.
             "financial_inputs": _parse_financial_inputs(monthly_gross_income),
+            # Relevance-filter provenance (null when the filter didn't run).
+            "filter": filter_stats,
+            "filter_dropped_sample": dropped_sample,
             # Provenance — the settings used to produce this report.
             "model": MODEL,
             "jurisdiction": {
@@ -1855,6 +1954,7 @@ async def custody_report(
         # Counts derived deterministically from the cited events, not the LLM.
         "custody_breakdown": _custody_breakdown(report.childcare_events),
         "report": report.model_dump(),
-        # The full chronological message log, for the PDF appendix.
-        "transcript": messages_to_records(messages[:TRANSCRIPT_CAP]),
+        # The FULL chronological message log (not just the filtered slice), so
+        # the appendix and the T#/E# quote-refs cover the entire record.
+        "transcript": messages_to_records(all_messages[:TRANSCRIPT_CAP]),
     }
