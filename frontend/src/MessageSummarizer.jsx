@@ -244,6 +244,9 @@ export default function MessageSummarizer() {
   const [result, setResult] = useState(null);
   // Progress line while a large mailbox is being condensed in-browser.
   const [condensing, setCondensing] = useState(null);
+  // Conversation roster filter: true = only two-way threads (real people),
+  // hiding one-way senders like newsletters and receipts.
+  const [peopleOnly, setPeopleOnly] = useState(true);
 
   // Load the contact roster from every file currently chosen.
   const loadContacts = useCallback(async (texts, emails, email) => {
@@ -427,6 +430,17 @@ export default function MessageSummarizer() {
   // The intake questionnaire is state-specific — shown only once a state
   // with a registered intake (currently West Virginia) is selected.
   const stateIntake = getStateIntake(caseState);
+
+  // Roster shown in the conversation picker. "People" = two-way threads;
+  // falls back to everything when direction data is absent (filter would be
+  // empty), and always keeps already-selected names visible.
+  const peopleContacts = contacts.filter((c) => c.two_way);
+  const visibleContacts =
+    !peopleOnly || peopleContacts.length === 0
+      ? contacts
+      : contacts.filter(
+          (c) => c.two_way || selectedContacts.includes(c.name),
+        );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-amber-50">
@@ -679,6 +693,27 @@ export default function MessageSummarizer() {
             {isCustody
               ? "Limit to specific conversations (optional — pick every thread involving the other parent)"
               : "Contacts"}
+            {contacts.length > 0 && (
+              <div className="mt-1 flex gap-1 self-start rounded-full bg-slate-100 p-0.5 font-normal">
+                {[
+                  [true, `People (${contacts.filter((c) => c.two_way).length})`],
+                  [false, `All senders (${contacts.length})`],
+                ].map(([val, label]) => (
+                  <button
+                    key={String(val)}
+                    type="button"
+                    onClick={() => setPeopleOnly(val)}
+                    className={`rounded-full px-2.5 py-0.5 transition ${
+                      peopleOnly === val
+                        ? "bg-white font-medium text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {selectedContacts.length > 0 && (
               <span className="mt-1 font-normal text-indigo-600">
                 {selectedContacts.length} selected ·{" "}
@@ -703,7 +738,7 @@ export default function MessageSummarizer() {
                   Add files to list conversations
                 </p>
               ) : (
-                contacts.map((c) => (
+                visibleContacts.map((c) => (
                   <label
                     key={c.name}
                     className="flex cursor-pointer items-center gap-2 px-2 py-1 font-normal hover:bg-indigo-50"

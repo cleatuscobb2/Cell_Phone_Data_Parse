@@ -289,7 +289,12 @@ def compute_stats(messages: list[Message]) -> dict:
 
 def list_conversations(messages: list[Message]) -> list[dict]:
     """Roster of conversations for the contact selector — name, message
-    count, and date span — ordered by volume."""
+    count, and date span — ordered by volume.
+
+    `two_way` marks conversations with traffic in BOTH directions — the
+    reliable signature of an actual person. Newsletters, receipts, and
+    transactional email are one-way, so the UI can default to people only.
+    """
     by_convo: dict[str, list[Message]] = defaultdict(list)
     for m in messages:
         by_convo[m.conversation].append(m)
@@ -299,6 +304,8 @@ def list_conversations(messages: list[Message]) -> list[dict]:
             "count": len(msgs),
             "first_date": msgs[0].timestamp.strftime("%Y-%m-%d"),
             "last_date": msgs[-1].timestamp.strftime("%Y-%m-%d"),
+            "two_way": any(m.from_me for m in msgs)
+            and any(not m.from_me for m in msgs),
         }
         for name, msgs in by_convo.items()
     ]
