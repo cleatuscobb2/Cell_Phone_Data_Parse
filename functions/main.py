@@ -37,7 +37,7 @@ import anthropic
 import firebase_admin
 from firebase_admin import auth as fb_auth
 from firebase_functions import https_fn, options
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from parser import (
     compute_stats,
@@ -124,57 +124,77 @@ class ConversationSummary(BaseModel):
 # values are spelled out in CUSTODY_PROMPT and re-enforced by
 # _normalize_extraction() after parsing.
 
+def _coerce_int(v) -> int:
+    """Pull an int out of whatever the model emitted for a numeric field —
+    "45", "about 45 days", 45.0, None all resolve, defaulting to 0."""
+    if isinstance(v, bool) or v is None or v == "":
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    m = re.search(r"-?\d+", str(v))
+    return int(m.group()) if m else 0
+
+
+# Every field below carries a default so a window whose model output omits or
+# malforms a field still validates (we keep the partial event rather than
+# failing the whole window). _normalize_extraction() re-buckets the enums.
+
 class ChildcareEvent(BaseModel):
-    date: str
-    parent: str    # mother | father | shared | unclear
-    description: str
-    quote: str
-    sender: str
-    channel: str   # text | email | unclear
+    date: str = ""
+    parent: str = "unclear"   # mother | father | shared | unclear
+    description: str = ""
+    quote: str = ""
+    sender: str = ""
+    channel: str = "unclear"  # text | email | unclear
 
 
 class MissedVisit(BaseModel):
-    date: str
-    kind: str      # cancellation | no_show | reschedule_request | late | declined_time | other
-    description: str
-    quote: str
-    sender: str
-    channel: str
+    date: str = ""
+    kind: str = "other"       # cancellation | no_show | reschedule_request | late | declined_time | other
+    description: str = ""
+    quote: str = ""
+    sender: str = ""
+    channel: str = "unclear"
 
 
 class CommunicationGap(BaseModel):
-    start_date: str
-    end_date: str
-    days: int
-    description: str
+    start_date: str = ""
+    end_date: str = ""
+    days: int = 0
+    description: str = ""
+
+    @field_validator("days", mode="before")
+    @classmethod
+    def _v_days(cls, v):
+        return _coerce_int(v)
 
 
 class ResponsibilityEvent(BaseModel):
-    date: str
+    date: str = ""
     # education | medical_dental_eye | religious | child_care |
     # childrens_employment | motor_vehicle | activities | other
-    category: str
-    subcategory: str
-    responsible_party: str   # mother | father | shared | unclear
-    description: str
-    quote: str
-    sender: str
-    channel: str
+    category: str = "other"
+    subcategory: str = ""
+    responsible_party: str = "unclear"   # mother | father | shared | unclear
+    description: str = ""
+    quote: str = ""
+    sender: str = ""
+    channel: str = "unclear"
 
 
 class ThirdPartyStatement(BaseModel):
-    date: str
-    source: str
-    description: str
-    quote: str
-    channel: str
+    date: str = ""
+    source: str = ""
+    description: str = ""
+    quote: str = ""
+    channel: str = "unclear"
 
 
 class Suggestion(BaseModel):
     # attachment | key_statement | evidence_to_gather | follow_up | other
-    category: str
-    suggestion: str
-    related_date: str
+    category: str = "other"
+    suggestion: str = ""
+    related_date: str = ""
 
 
 class Expense(BaseModel):
@@ -217,16 +237,16 @@ class CustodyExtraction(BaseModel):
     """Output shape for the per-window LLM extraction. Excludes the
     financial `expenses` field — that comes from a separate extractor —
     to keep Claude's compiled-grammar size under the API limit."""
-    overview: str
-    breakdown_basis: str
-    childcare_events: list[ChildcareEvent]
-    missed_or_cancelled: list[MissedVisit]
-    communication_gaps: list[CommunicationGap]
-    responsibility_events: list[ResponsibilityEvent]
-    third_party_statements: list[ThirdPartyStatement]
-    suggestions: list[Suggestion]
-    sentiment_overview: str
-    limitations: list[str]
+    overview: str = ""
+    breakdown_basis: str = ""
+    childcare_events: list[ChildcareEvent] = []
+    missed_or_cancelled: list[MissedVisit] = []
+    communication_gaps: list[CommunicationGap] = []
+    responsibility_events: list[ResponsibilityEvent] = []
+    third_party_statements: list[ThirdPartyStatement] = []
+    suggestions: list[Suggestion] = []
+    sentiment_overview: str = ""
+    limitations: list[str] = []
 
 
 class CustodyReport(CustodyExtraction):
@@ -966,7 +986,15 @@ def _structured_extract(
         if getattr(block, "type", None) == "tool_use" and block.name == "submit":
             try:
                 return output_model.model_validate(_coerce_tool_payload(block.input))
-            except ValidationError:
+            except ValidationError as ve:
+                import sys
+                locs = "; ".join(
+                    f"{e.get('loc')}:{e.get('type')}" for e in ve.errors()[:6]
+                )
+                print(
+                    f"[extract] {output_model.__name__} validation failed: {locs}",
+                    file=sys.stderr, flush=True,
+                )
                 raise ApiError(
                     413,
                     "A time window produced more events than fit in one response. "
@@ -993,6 +1021,63 @@ def _extract_chunk(chunk_messages: list, context_lines: list[str],
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
     _normalize_extraction(report)
     return report
+
+
+# Marks limitations added by auto-recovery so they survive the reduce step.
+_SKIP_MARK = "⚠ "
+
+
+def _empty_extraction() -> CustodyExtraction:
+    return CustodyExtraction()
+
+
+def _concat_extractions(parts: list[CustodyExtraction]) -> CustodyExtraction:
+    """Concatenate sub-window extractions (event lists joined, narratives
+    concatenated). The final _combine_reports does the real narrative
+    synthesis across top-level windows."""
+    parts = [p for p in parts if p is not None]
+    if not parts:
+        return _empty_extraction()
+    if len(parts) == 1:
+        return parts[0]
+    return CustodyExtraction(
+        overview=" ".join(p.overview for p in parts if p.overview),
+        breakdown_basis=next((p.breakdown_basis for p in parts if p.breakdown_basis), ""),
+        childcare_events=[e for p in parts for e in p.childcare_events],
+        missed_or_cancelled=[e for p in parts for e in p.missed_or_cancelled],
+        communication_gaps=[g for p in parts for g in p.communication_gaps],
+        responsibility_events=[r for p in parts for r in p.responsibility_events],
+        third_party_statements=[t for p in parts for t in p.third_party_statements],
+        suggestions=[s for p in parts for s in p.suggestions],
+        sentiment_overview=" ".join(p.sentiment_overview for p in parts if p.sentiment_overview),
+        limitations=[l for p in parts for l in p.limitations],
+    )
+
+
+def _extract_chunk_resilient(chunk_messages: list, context_lines: list[str],
+                             window_note: str) -> CustodyExtraction:
+    """Extract one window; if it truncates or fails validation, split it and
+    retry so a single dense or malformed window can't fail the whole report.
+    A span that fails down to one message is skipped with a recorded note."""
+    try:
+        return _extract_chunk(chunk_messages, context_lines, window_note)
+    except ApiError as e:
+        if e.status != 413:
+            raise
+    if len(chunk_messages) > 1:
+        mid = len(chunk_messages) // 2
+        left = _extract_chunk_resilient(
+            chunk_messages[:mid], context_lines, window_note + " (split A)")
+        right = _extract_chunk_resilient(
+            chunk_messages[mid:], context_lines, window_note + " (split B)")
+        return _concat_extractions([left, right])
+    when = (chunk_messages[0].timestamp.strftime("%Y-%m-%d")
+            if chunk_messages else "an unknown date")
+    ext = _empty_extraction()
+    ext.limitations = [
+        f"{_SKIP_MARK}One message dated {when} could not be analyzed and was skipped."
+    ]
+    return ext
 
 
 def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
@@ -1458,7 +1543,7 @@ def handle_custody(req: https_fn.Request) -> dict:
         # _extract_chunk returns CustodyExtraction (no expenses field);
         # promote it to CustodyReport so the financial extractors below can
         # attach their results.
-        extraction = _extract_chunk(
+        extraction = _extract_chunk_resilient(
             chunks[0], context, "This transcript covers the full requested history."
         )
         report = CustodyReport(**extraction.model_dump())
@@ -1470,11 +1555,17 @@ def handle_custody(req: https_fn.Request) -> dict:
                 f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
                 f"Analyze only this window; results are merged with the others."
             )
-            return _extract_chunk(chunk, context, note)
+            return _extract_chunk_resilient(chunk, context, note)
 
         with ThreadPoolExecutor(max_workers=CHUNK_CONCURRENCY) as pool:
             partials = list(pool.map(run_window, enumerate(chunks)))
         report = _combine_reports(partials)
+        # Preserve auto-recovery skip notes the reduce step may have dropped.
+        for note in sorted(
+            {l for p in partials for l in p.limitations if l.startswith(_SKIP_MARK)}
+        ):
+            if note not in report.limitations:
+                report.limitations.append(note)
 
     # 4. Financial extraction — child-related expenses from receipts and
     #    payment-app CSVs. Skipped entirely when no files were uploaded.
