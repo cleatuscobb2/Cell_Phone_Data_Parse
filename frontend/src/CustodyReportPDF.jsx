@@ -1410,7 +1410,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             the basis for the analysis is transparent as the case is built.
           </Text>
           <PdfKV label="Report generated" value={generated} />
-          <PdfKV label="Analysis model" value={meta.model || "claude-opus-4-7"} />
+          <PdfKV label="Analysis model" value={meta.model || "claude-sonnet-5"} />
           <PdfKV
             label="Filing jurisdiction"
             value={jurLabel || "Not specified"}

@@ -55,8 +55,9 @@ load_dotenv(Path(__file__).with_name(".env"), override=True)
 # changes. Set ANALYSIS_MODEL to the provider's model id and ANTHROPIC_BASE_URL
 # to the provider's Anthropic-compatible base (the SDK reads that env var);
 # ANTHROPIC_API_KEY carries the provider's key. Defaults to Claude Opus 4.7.
-MODEL = os.getenv("ANALYSIS_MODEL", "claude-opus-4-7")
-# Opus 4.7 has a 1M-token context window; leave headroom for the response.
+MODEL = os.getenv("ANALYSIS_MODEL", "claude-sonnet-5")
+# The windowing keeps each call's input small (~150 messages), well within
+# any current model's context; this is a soft guard only.
 MAX_INPUT_TOKENS = 900_000
 # Cap on requested output tokens per extraction call. Lower for providers
 # with smaller output limits (DeepSeek ~8k) via MAX_OUTPUT_TOKENS.
@@ -65,6 +66,15 @@ MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "32000"))
 # prompt-caching `cache_control`; skip it unless we're talking to Anthropic.
 _BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
 _IS_ANTHROPIC = _BASE_URL == "" or "anthropic.com" in _BASE_URL
+
+# Batch API (Anthropic Message Batches) runs the window extractions
+# asynchronously at 50% cost. USE_BATCH=1 turns it on for multi-window runs.
+# The request holds open polling until the batch finishes, so it suits local
+# runs and small/medium batches; very large batches can exceed a browser's
+# fetch patience even though the batch itself completes server-side.
+USE_BATCH = os.getenv("USE_BATCH") == "1"
+BATCH_POLL_SECONDS = int(os.getenv("BATCH_POLL_SECONDS", "6"))
+BATCH_MAX_WAIT_SECONDS = int(os.getenv("BATCH_MAX_WAIT_SECONDS", "1500"))
 
 
 def _system_blocks(text: str) -> list[dict]:
@@ -1155,6 +1165,99 @@ def _extract_chunk_resilient(chunk_messages: list, context_lines: list[str],
     return ext
 
 
+def _window_note(idx: int, total: int, chunk: list) -> str:
+    return (
+        f"This is time window {idx + 1} of {total}, covering "
+        f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
+        f"Analyze only this window; results are merged with the others."
+    )
+
+
+def _extraction_params(chunk: list, context_lines: list[str], note: str) -> dict:
+    """The Messages request params for one window's extraction — shared by the
+    live (streaming) path and the batch path."""
+    condensed = to_condensed_string(chunk)
+    user_content = "\n".join(context_lines) + (
+        f"\n\n{note}\n\nHere is this portion of the transcript:\n\n{condensed}"
+    )
+    return {
+        "model": MODEL,
+        "max_tokens": min(MAX_OUTPUT_TOKENS, 32000),
+        "system": _system_blocks(CUSTODY_PROMPT),
+        "messages": [{"role": "user", "content": user_content}],
+        "tools": [{
+            "name": "submit",
+            "description": "Submit the structured analysis.",
+            "input_schema": CustodyExtraction.model_json_schema(),
+        }],
+        "tool_choice": {"type": "tool", "name": "submit"},
+    }
+
+
+def _parse_batch_message(message) -> CustodyExtraction | None:
+    """Pull a CustodyExtraction out of a batch result's completed message,
+    or None if it didn't call the tool / failed validation."""
+    for block in message.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "submit":
+            try:
+                ext = CustodyExtraction.model_validate(
+                    _coerce_tool_payload(block.input))
+                _normalize_extraction(ext)
+                return ext
+            except ValidationError:
+                return None
+    return None
+
+
+def _run_window_batch(chunks: list[list], context_lines: list[str]) -> list:
+    """Extract every window via the Anthropic Batch API (50% cost), polling
+    until the batch ends. Windows the batch couldn't complete fall back to the
+    synchronous resilient path so one bad window still can't fail the report.
+    Synchronous — call via asyncio.to_thread."""
+    import time
+
+    requests = [
+        {
+            "custom_id": f"w{i}",
+            "params": _extraction_params(
+                ch, context_lines, _window_note(i, len(chunks), ch)),
+        }
+        for i, ch in enumerate(chunks)
+    ]
+    batch = client.messages.batches.create(requests=requests)
+
+    waited = 0
+    while True:
+        status = client.messages.batches.retrieve(batch.id)
+        if status.processing_status == "ended":
+            break
+        if waited >= BATCH_MAX_WAIT_SECONDS:
+            raise HTTPException(
+                504,
+                "The batch analysis is taking longer than expected. It may "
+                "still finish — try again, or run without USE_BATCH.",
+            )
+        time.sleep(BATCH_POLL_SECONDS)
+        waited += BATCH_POLL_SECONDS
+
+    by_id: dict[str, object] = {}
+    for result in client.messages.batches.results(batch.id):
+        by_id[result.custom_id] = result
+
+    partials: list = [None] * len(chunks)
+    for i in range(len(chunks)):
+        res = by_id.get(f"w{i}")
+        ext = None
+        if res is not None and res.result.type == "succeeded":
+            ext = _parse_batch_message(res.result.message)
+        if ext is None:
+            # Errored, expired, or unparseable — recover this window live.
+            ext = _extract_chunk_resilient(
+                chunks[i], context_lines, _window_note(i, len(chunks), chunks[i]))
+        partials[i] = ext
+    return partials
+
+
 def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
     """Merge windowed reports: concatenate the event lists, then re-synthesize
     the narrative across all windows with a final reduce call. Synchronous —
@@ -1656,18 +1759,23 @@ async def custody_report(
             "This transcript covers the full requested history.",
         )
         report = CustodyReport(**extraction.model_dump())
+    elif USE_BATCH:
+        # Batch API — 50% cost, asynchronous. One request per window.
+        partials = await asyncio.to_thread(_run_window_batch, chunks, context)
+        report = await asyncio.to_thread(_combine_reports, list(partials))
+        for note in sorted(
+            {l for p in partials for l in p.limitations if l.startswith(_SKIP_MARK)}
+        ):
+            if note not in report.limitations:
+                report.limitations.append(note)
     else:
         sem = asyncio.Semaphore(CHUNK_CONCURRENCY)
 
         async def run_window(idx: int, chunk: list) -> CustodyExtraction:
-            note = (
-                f"This is time window {idx + 1} of {len(chunks)}, covering "
-                f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
-                f"Analyze only this window; results are merged with the others."
-            )
             async with sem:
                 return await asyncio.to_thread(
-                    _extract_chunk_resilient, chunk, context, note
+                    _extract_chunk_resilient, chunk, context,
+                    _window_note(idx, len(chunks), chunk),
                 )
 
         partials = await asyncio.gather(

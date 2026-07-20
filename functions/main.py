@@ -58,8 +58,9 @@ firebase_admin.initialize_app()
 # The analysis model is configurable so the app can point at an
 # Anthropic-compatible endpoint (DeepSeek, Moonshot/Kimi, etc.) without code
 # changes. Set ANALYSIS_MODEL + ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY.
-MODEL = os.getenv("ANALYSIS_MODEL", "claude-opus-4-7")
-# Opus 4.7 has a 1M-token context window; leave headroom for the response.
+MODEL = os.getenv("ANALYSIS_MODEL", "claude-sonnet-5")
+# The windowing keeps each call's input small (~150 messages), well within
+# any current model's context; this is a soft guard only.
 MAX_INPUT_TOKENS = 900_000
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "32000"))
 # Third-party Anthropic-compatible endpoints don't support Anthropic's
