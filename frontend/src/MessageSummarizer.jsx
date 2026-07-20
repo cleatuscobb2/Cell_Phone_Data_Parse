@@ -223,7 +223,7 @@ export default function MessageSummarizer() {
   const [userEmail, setUserEmail] = useState("");
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
-  const [selectedContact, setSelectedContact] = useState("");
+  const [selectedContacts, setSelectedContacts] = useState([]);
   const [searchTerms, setSearchTerms] = useState("");
   const [otherParent, setOtherParent] = useState("");
   const [userRole, setUserRole] = useState("mother");
@@ -272,7 +272,7 @@ export default function MessageSummarizer() {
   async function changeTextFiles(next) {
     setResult(null);
     setError("");
-    setSelectedContact("");
+    setSelectedContacts([]);
     const processed = [];
     for (const f of next) {
       processed.push(shouldGzip(f) ? await gzipFile(f) : f);
@@ -290,7 +290,7 @@ export default function MessageSummarizer() {
   async function changeEmailFiles(next) {
     setResult(null);
     setError("");
-    setSelectedContact("");
+    setSelectedContacts([]);
     const processed = [];
     for (const f of next) {
       const isBigMbox =
@@ -380,7 +380,7 @@ export default function MessageSummarizer() {
     if (userEmail.trim()) form.append("user_email", userEmail.trim());
     if (startDate) form.append("start_date", startDate);
     if (endDate) form.append("end_date", endDate);
-    if (selectedContact) form.append("contact", selectedContact);
+    for (const c of selectedContacts) form.append("contact", c);
 
     let endpoint;
     if (mode === "custody") {
@@ -670,26 +670,70 @@ export default function MessageSummarizer() {
           </div>
         )}
 
-        {/* Scope: contact (+ search terms in summary mode) */}
+        {/* Scope: conversations (+ search terms in summary mode). Multi-
+            select, because the other parent usually appears as several
+            buckets — their text thread, their email address, name variants —
+            and a case can span relatives' and the school's threads too. */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col text-xs font-medium text-slate-600">
-            {isCustody ? "Limit to one conversation (optional)" : "Contact"}
-            <select
-              value={selectedContact}
-              onChange={(e) => setSelectedContact(e.target.value)}
-              disabled={(textFiles.length === 0 && emailFiles.length === 0) || contactsLoading}
-              className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+          <div className="flex flex-col text-xs font-medium text-slate-600">
+            {isCustody
+              ? "Limit to specific conversations (optional — pick every thread involving the other parent)"
+              : "Contacts"}
+            {selectedContacts.length > 0 && (
+              <span className="mt-1 font-normal text-indigo-600">
+                {selectedContacts.length} selected ·{" "}
+                {contacts
+                  .filter((c) => selectedContacts.includes(c.name))
+                  .reduce((s, c) => s + c.count, 0)
+                  .toLocaleString()}{" "}
+                messages
+              </span>
+            )}
+            <div
+              className={`mt-1 max-h-44 overflow-y-auto rounded-md border border-slate-300 bg-white ${
+                (textFiles.length === 0 && emailFiles.length === 0) || contactsLoading
+                  ? "pointer-events-none bg-slate-50 text-slate-400"
+                  : ""
+              }`}
             >
-              <option value="">
-                {contactsLoading ? "Loading contacts…" : "All contacts"}
-              </option>
-              {contacts.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name} ({c.count})
-                </option>
-              ))}
-            </select>
-          </label>
+              {contactsLoading ? (
+                <p className="px-2 py-1.5 text-slate-400">Loading contacts…</p>
+              ) : contacts.length === 0 ? (
+                <p className="px-2 py-1.5 text-slate-400">
+                  Add files to list conversations
+                </p>
+              ) : (
+                contacts.map((c) => (
+                  <label
+                    key={c.name}
+                    className="flex cursor-pointer items-center gap-2 px-2 py-1 font-normal hover:bg-indigo-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedContacts.includes(c.name)}
+                      onChange={(e) =>
+                        setSelectedContacts((prev) =>
+                          e.target.checked
+                            ? [...prev, c.name]
+                            : prev.filter((n) => n !== c.name),
+                        )
+                      }
+                      className="rounded border-slate-300"
+                    />
+                    <span className="truncate">
+                      {c.name}{" "}
+                      <span className="text-slate-400">
+                        ({c.count.toLocaleString()})
+                      </span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            <span className="mt-1 font-normal text-slate-400">
+              Nothing selected = all conversations
+            </span>
+          </div>
           {!isCustody && (
             <label className="flex flex-col text-xs font-medium text-slate-600">
               Search terms

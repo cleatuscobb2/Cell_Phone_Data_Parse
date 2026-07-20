@@ -683,11 +683,11 @@ def handle_summarize(req: https_fn.Request) -> dict:
         raise ApiError(422, "No messages found in the file for the selected date range.")
 
     # 2. Narrow to a single contact, if requested.
-    contact = form.get("contact")
+    contact = [c for c in form.getlist("contact") if c]
     if contact:
         messages = filter_by_contact(messages, contact)
         if not messages:
-            raise ApiError(422, f"No messages found for contact {contact!r}.")
+            raise ApiError(422, f"No messages found for contact(s) {contact!r}.")
 
     # 3. Apply search terms — comma-separated, OR-matched on message body.
     terms = [t.strip() for t in (form.get("search_terms") or "").split(",") if t.strip()]
@@ -743,7 +743,7 @@ def handle_summarize(req: https_fn.Request) -> dict:
             "conversation_count": stats["conversation_count"],
             "date_range": stats["date_range"],
             "tokens_analyzed": token_count,
-            "contact": contact or None,
+            "contact": ", ".join(contact) if contact else None,
             "search_terms": terms,
         },
         "stats": {
@@ -823,8 +823,9 @@ def _over_capacity_message(messages: list, window_count: int) -> str:
         f"This selection has {len(messages):,} messages — about "
         f"{window_count} analysis windows, where the maximum per run is "
         f"{MAX_CHUNKS} (~{capacity:,} messages). Most of a full mailbox "
-        f"isn't about the case: use \"Limit to one conversation\" to pick "
-        f"the other parent's thread, or narrow the date range. Your largest "
+        f"isn't about the case: use \"Limit to specific conversations\" to "
+        f"pick every thread involving the other parent, or narrow the date "
+        f"range. Your largest "
         f"conversations: {top_str}."
     )
 
@@ -1407,7 +1408,7 @@ def handle_custody(req: https_fn.Request) -> dict:
         _parse_date(form.get("start_date"), "start_date"),
         _parse_date(form.get("end_date"), "end_date"),
     )
-    contact = form.get("contact")
+    contact = [c for c in form.getlist("contact") if c]
     if contact:
         messages = filter_by_contact(messages, contact)
     if not messages:
@@ -1531,7 +1532,7 @@ def handle_custody(req: https_fn.Request) -> dict:
                 "state": (form.get("state") or "").strip(),
                 "county": (form.get("county") or "").strip(),
             },
-            "contact": contact or None,
+            "contact": ", ".join(contact) if contact else None,
             "date_filter": {
                 "start": form.get("start_date") or "",
                 "end": form.get("end_date") or "",

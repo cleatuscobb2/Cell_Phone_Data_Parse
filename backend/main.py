@@ -702,7 +702,7 @@ async def summarize(
     user_email: str | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
-    contact: str | None = Form(None),
+    contact: list[str] | None = Form(None),
     search_terms: str | None = Form(None),
 ) -> dict:
     # 1. Read and parse the upload(s) — in memory only, nothing persisted.
@@ -782,7 +782,7 @@ async def summarize(
             "conversation_count": stats["conversation_count"],
             "date_range": stats["date_range"],
             "tokens_analyzed": token_count,
-            "contact": contact or None,
+            "contact": ", ".join(contact) if contact else None,
             "search_terms": terms,
         },
         "stats": {
@@ -862,8 +862,9 @@ def _over_capacity_message(messages: list, window_count: int) -> str:
         f"This selection has {len(messages):,} messages — about "
         f"{window_count} analysis windows, where the maximum per run is "
         f"{MAX_CHUNKS} (~{capacity:,} messages). Most of a full mailbox "
-        f"isn't about the case: use \"Limit to one conversation\" to pick "
-        f"the other parent's thread, or narrow the date range. Your largest "
+        f"isn't about the case: use \"Limit to specific conversations\" to "
+        f"pick every thread involving the other parent, or narrow the date "
+        f"range. Your largest "
         f"conversations: {top_str}."
     )
 
@@ -1468,7 +1469,7 @@ async def custody_report(
     case_profile: str | None = Form(None),
     state: str | None = Form(None),
     county: str | None = Form(None),
-    contact: str | None = Form(None),
+    contact: list[str] | None = Form(None),
     start_date: str | None = Form(None),
     end_date: str | None = Form(None),
     card_lookup: str | None = Form(None),
@@ -1608,7 +1609,7 @@ async def custody_report(
                 "state": (state or "").strip(),
                 "county": (county or "").strip(),
             },
-            "contact": contact or None,
+            "contact": ", ".join(contact) if contact else None,
             "date_filter": {"start": start_date or "", "end": end_date or ""},
         },
         # Counts derived deterministically from the cited events, not the LLM.

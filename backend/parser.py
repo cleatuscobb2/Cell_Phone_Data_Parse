@@ -306,9 +306,18 @@ def list_conversations(messages: list[Message]) -> list[dict]:
     return roster
 
 
-def filter_by_contact(messages: list[Message], contact: str) -> list[Message]:
-    """Keep only messages in the conversation with the given contact."""
-    return [m for m in messages if m.conversation == contact]
+def filter_by_contact(
+    messages: list[Message], contact: str | list[str]
+) -> list[Message]:
+    """Keep only messages in the conversation(s) with the given contact(s).
+
+    Accepts one name or several — the same person routinely appears as
+    multiple conversation buckets (their text thread, their email address,
+    name variants), and a case may span additional threads (relatives,
+    the school).
+    """
+    names = {contact} if isinstance(contact, str) else set(contact)
+    return [m for m in messages if m.conversation in names]
 
 
 def search_messages(messages: list[Message], terms: list[str]) -> list[Message]:
