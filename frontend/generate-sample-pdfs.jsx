@@ -365,7 +365,7 @@ function buildReport(spec) {
         other_parent_address: "known",
         military: "no",
       },
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       financial_inputs: { monthly_gross_income: 6500 },
       jurisdiction: { state: "West Virginia", county: "Kanawha" },
       contact: null,

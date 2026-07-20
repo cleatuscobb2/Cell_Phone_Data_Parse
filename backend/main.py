@@ -49,8 +49,8 @@ from parser import (
 # stale ANTHROPIC_API_KEY already present in the shell environment.
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 
-MODEL = "claude-opus-4-7"
-# Opus 4.7 has a 1M-token context window; leave headroom for the response.
+MODEL = "claude-opus-4-8"
+# Opus 4.8 has a 1M-token context window; leave headroom for the response.
 MAX_INPUT_TOKENS = 900_000
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment

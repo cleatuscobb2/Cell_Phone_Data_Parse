@@ -197,7 +197,7 @@ firebase deploy --only functions
 
 **Frontend** — React 18 · Vite 6 · Tailwind CSS v4 · Recharts · `@react-pdf/renderer` · ExcelJS · Firebase JS SDK
 
-**Backend** — Python 3.11+ · FastAPI + uvicorn (local) · Firebase Cloud Functions Python (production) · Pydantic v2 · Anthropic SDK (`claude-opus-4-7`, structured output via `messages.parse()`, adaptive thinking, prompt caching)
+**Backend** — Python 3.11+ · FastAPI + uvicorn (local) · Firebase Cloud Functions Python (production) · Pydantic v2 · Anthropic SDK (`claude-opus-4-8`, structured output via a non-strict `submit` tool, prompt caching)
 
 **Analysis pipeline** — long histories are split into chronological time windows, each window extracted concurrently against the same Pydantic schema, then a final Claude call reduces/merges the windows into one consolidated report.
 
