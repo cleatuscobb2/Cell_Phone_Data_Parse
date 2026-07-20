@@ -660,9 +660,12 @@ TRANSCRIPT_CAP = 2000
 # capped by BOTH transcript size and message count: even a modestly sized
 # but event-dense window can overflow a single structured response.
 CHUNK_CHARS = 300_000          # max transcript size per window
-MAX_MESSAGES_PER_WINDOW = 50   # max messages per window (bounds output size)
-MAX_CHUNKS = 30                # refuse histories that would need more windows
-CHUNK_CONCURRENCY = 4          # windows analyzed in parallel
+# 150 messages/window is safe now that extraction streams with a 32k-token
+# output budget (output scales with events, and even one event per message
+# fits comfortably). 60 windows × 150 = 9,000 messages per run.
+MAX_MESSAGES_PER_WINDOW = 150
+MAX_CHUNKS = 60                # refuse histories that would need more windows
+CHUNK_CONCURRENCY = 8          # windows analyzed in parallel
 
 
 # --- /summarize ---------------------------------------------------------------
@@ -807,6 +810,23 @@ def _custody_breakdown(events: list[ChildcareEvent]) -> dict:
         "estimated_pct_mother": round((mother + 0.5 * shared) / denom * 100, 1) if denom else 0.0,
         "estimated_pct_father": round((father + 0.5 * shared) / denom * 100, 1) if denom else 0.0,
     }
+
+
+def _over_capacity_message(messages: list, window_count: int) -> str:
+    """An actionable 413: a whole-mailbox upload is dominated by
+    conversations irrelevant to the case, so name the largest ones and
+    point at the conversation filter instead of a generic 'too large'."""
+    capacity = MAX_CHUNKS * MAX_MESSAGES_PER_WINDOW
+    top = Counter(m.conversation for m in messages).most_common(5)
+    top_str = ", ".join(f'"{name}" ({count:,})' for name, count in top)
+    return (
+        f"This selection has {len(messages):,} messages — about "
+        f"{window_count} analysis windows, where the maximum per run is "
+        f"{MAX_CHUNKS} (~{capacity:,} messages). Most of a full mailbox "
+        f"isn't about the case: use \"Limit to one conversation\" to pick "
+        f"the other parent's thread, or narrow the date range. Your largest "
+        f"conversations: {top_str}."
+    )
 
 
 def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
@@ -1420,12 +1440,7 @@ def handle_custody(req: https_fn.Request) -> dict:
     #    one is analyzed window-by-window (concurrently) and merged.
     chunks = _split_into_chunks(messages, CHUNK_CHARS)
     if len(chunks) > MAX_CHUNKS:
-        raise ApiError(
-            413,
-            f"This selection is very large ({len(messages):,} messages, "
-            f"{len(chunks)} windows). Narrow the date range or scope to one "
-            f"contact and try again.",
-        )
+        raise ApiError(413, _over_capacity_message(messages, len(chunks)))
 
     if len(chunks) == 1:
         # _extract_chunk returns CustodyExtraction (no expenses field);
@@ -1580,7 +1595,7 @@ def _require_auth(req: https_fn.Request) -> None:
 
 
 @https_fn.on_request(
-    timeout_sec=900,
+    timeout_sec=1800,
     memory=options.MemoryOption.GB_1,
     secrets=["ANTHROPIC_API_KEY"],
 )
