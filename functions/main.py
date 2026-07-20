@@ -560,9 +560,12 @@ Be conservative — when in doubt, omit."""
 
 def _load_export(raw: bytes, filename: str) -> object:
     """Decode an upload into the structure parse_export() expects."""
-    text = raw.decode("utf-8-sig", errors="replace")
+    text = _decode_text(raw)
     if filename.lower().endswith(".csv"):
-        return list(csv.DictReader(io.StringIO(text)))
+        try:
+            return list(csv.DictReader(io.StringIO(text)))
+        except csv.Error as e:
+            raise ApiError(422, f'"{filename}" could not be read as CSV: {e}')
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
@@ -576,6 +579,14 @@ def _parse_date(value: str | None, field: str) -> date | None:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         raise ApiError(422, f"{field} must be YYYY-MM-DD, got: {value!r}")
+
+
+def _decode_text(raw: bytes) -> str:
+    """Decode an upload and normalize line endings. Bare-CR separators and
+    stray CRs inside fields (some phone/bank export tools) crash Python's
+    csv module with 'new-line character seen in unquoted field'."""
+    text = raw.decode("utf-8-sig", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _maybe_gunzip(raw: bytes, filename: str) -> tuple[bytes, str]:
@@ -1100,7 +1111,7 @@ def _parse_card_lookup(raw: str | None) -> dict[str, str]:
 
 def _parse_payment_csv(raw: bytes, filename: str, base_index: int) -> list[dict]:
     """Tolerant parse of a Venmo / Zelle / Cash App / PayPal CSV."""
-    text = raw.decode("utf-8-sig", errors="replace")
+    text = _decode_text(raw)
     reader = csv.DictReader(io.StringIO(text))
     rows: list[dict] = []
     for row in reader:
@@ -1161,7 +1172,7 @@ def _normalize_bank_date(s: str) -> str:
 
 def _parse_bank_csv(raw: bytes, filename: str, base_index: int) -> list[dict]:
     """Tolerant parse of a bank or credit-card statement CSV."""
-    text = raw.decode("utf-8-sig", errors="replace")
+    text = _decode_text(raw)
     reader = csv.DictReader(io.StringIO(text))
     rows: list[dict] = []
     for row in reader:
