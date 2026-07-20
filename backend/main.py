@@ -54,7 +54,16 @@ MODEL = "claude-opus-4-8"
 # Opus 4.8 has a 1M-token context window; leave headroom for the response.
 MAX_INPUT_TOKENS = 900_000
 
-client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+# Auth for the local backend. ANTHROPIC_API_KEY bills the API account (the
+# usual path). As an alternative for local runs, ANTHROPIC_AUTH_TOKEN sends a
+# bearer token instead of an x-api-key header — use it if you have a token
+# from another source (e.g. `claude setup-token`) and want to try routing
+# through it. Whichever is set takes effect; run verify_llm_auth.py first to
+# confirm the chosen auth actually works before a long report.
+if os.getenv("ANTHROPIC_AUTH_TOKEN"):
+    client = anthropic.Anthropic(auth_token=os.environ["ANTHROPIC_AUTH_TOKEN"])
+else:
+    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
 
 app = FastAPI(title="Message History Summarizer")
 # Allow localhost dev plus this project's Vercel domains (production +
