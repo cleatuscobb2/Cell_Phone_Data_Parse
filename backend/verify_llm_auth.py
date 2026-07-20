@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-opus-4-7"
 
 
 def main() -> int:

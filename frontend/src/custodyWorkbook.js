@@ -274,7 +274,7 @@ function buildSummarySheet(wb, meta, cb, report, fin) {
       : "Not specified",
   );
   add("Conversation scope", meta.contact || "All contacts");
-  add("Analysis model", meta.model || "claude-opus-4-8");
+  add("Analysis model", meta.model || "claude-opus-4-7");
   if (meta.transcript_truncated) {
     add(
       "Note",

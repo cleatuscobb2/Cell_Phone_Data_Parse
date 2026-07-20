@@ -55,8 +55,8 @@ from parser import (
 
 firebase_admin.initialize_app()
 
-MODEL = "claude-opus-4-8"
-# Opus 4.8 has a 1M-token context window; leave headroom for the response.
+MODEL = "claude-opus-4-7"
+# Opus 4.7 has a 1M-token context window; leave headroom for the response.
 MAX_INPUT_TOKENS = 900_000
 
 # The Anthropic client is created lazily so the secret-backed env var is
