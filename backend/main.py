@@ -50,9 +50,30 @@ from parser import (
 # stale ANTHROPIC_API_KEY already present in the shell environment.
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 
-MODEL = "claude-opus-4-7"
+# The analysis model is configurable so the app can point at an
+# Anthropic-compatible endpoint (DeepSeek, Moonshot/Kimi, etc.) without code
+# changes. Set ANALYSIS_MODEL to the provider's model id and ANTHROPIC_BASE_URL
+# to the provider's Anthropic-compatible base (the SDK reads that env var);
+# ANTHROPIC_API_KEY carries the provider's key. Defaults to Claude Opus 4.7.
+MODEL = os.getenv("ANALYSIS_MODEL", "claude-opus-4-7")
 # Opus 4.7 has a 1M-token context window; leave headroom for the response.
 MAX_INPUT_TOKENS = 900_000
+# Cap on requested output tokens per extraction call. Lower for providers
+# with smaller output limits (DeepSeek ~8k) via MAX_OUTPUT_TOKENS.
+MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "32000"))
+# Third-party Anthropic-compatible endpoints don't support Anthropic's
+# prompt-caching `cache_control`; skip it unless we're talking to Anthropic.
+_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
+_IS_ANTHROPIC = _BASE_URL == "" or "anthropic.com" in _BASE_URL
+
+
+def _system_blocks(text: str) -> list[dict]:
+    """System prompt as a content-block list, with cache_control only when
+    the endpoint is Anthropic (other providers reject the unknown field)."""
+    block: dict = {"type": "text", "text": text}
+    if _IS_ANTHROPIC:
+        block["cache_control"] = {"type": "ephemeral"}
+    return [block]
 
 # Auth for the local backend. ANTHROPIC_API_KEY bills the API account (the
 # usual path). As an alternative for local runs, ANTHROPIC_AUTH_TOKEN sends a
@@ -999,7 +1020,7 @@ def _structured_extract(
     *,
     system_text: str,
     user_content,
-    max_tokens: int = 32000,
+    max_tokens: int | None = None,
     use_thinking: bool = False,  # kept for signature compatibility — unused
 ) -> BaseModel:
     """Call Claude with the output model's JSON schema as a NON-strict tool,
@@ -1017,12 +1038,8 @@ def _structured_extract(
     _ = use_thinking  # noqa: F841 — signature kept stable for callers
     with client.messages.stream(
         model=MODEL,
-        max_tokens=max_tokens,
-        system=[{
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
-        }],
+        max_tokens=min(max_tokens or MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS),
+        system=_system_blocks(system_text),
         messages=[{"role": "user", "content": user_content}],
         tools=[{
             "name": "submit",

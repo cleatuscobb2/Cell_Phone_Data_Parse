@@ -55,9 +55,26 @@ from parser import (
 
 firebase_admin.initialize_app()
 
-MODEL = "claude-opus-4-7"
+# The analysis model is configurable so the app can point at an
+# Anthropic-compatible endpoint (DeepSeek, Moonshot/Kimi, etc.) without code
+# changes. Set ANALYSIS_MODEL + ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY.
+MODEL = os.getenv("ANALYSIS_MODEL", "claude-opus-4-7")
 # Opus 4.7 has a 1M-token context window; leave headroom for the response.
 MAX_INPUT_TOKENS = 900_000
+MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "32000"))
+# Third-party Anthropic-compatible endpoints don't support Anthropic's
+# prompt-caching `cache_control`; skip it unless we're talking to Anthropic.
+_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
+_IS_ANTHROPIC = _BASE_URL == "" or "anthropic.com" in _BASE_URL
+
+
+def _system_blocks(text: str) -> list[dict]:
+    """System prompt as a content-block list, with cache_control only when
+    the endpoint is Anthropic (other providers reject the unknown field)."""
+    block: dict = {"type": "text", "text": text}
+    if _IS_ANTHROPIC:
+        block["cache_control"] = {"type": "ephemeral"}
+    return [block]
 
 # The Anthropic client is created lazily so the secret-backed env var is
 # guaranteed to be present by the time it is first used.
@@ -948,7 +965,7 @@ def _structured_extract(
     *,
     system_text: str,
     user_content,
-    max_tokens: int = 32000,
+    max_tokens: int | None = None,
     use_thinking: bool = False,  # kept for signature compatibility — unused
 ) -> BaseModel:
     """Call Claude with the output model's JSON schema as a NON-strict tool,
@@ -961,12 +978,8 @@ def _structured_extract(
     _ = use_thinking  # noqa: F841
     with client().messages.stream(
         model=MODEL,
-        max_tokens=max_tokens,
-        system=[{
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
-        }],
+        max_tokens=min(max_tokens or MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS),
+        system=_system_blocks(system_text),
         messages=[{"role": "user", "content": user_content}],
         tools=[{
             "name": "submit",
