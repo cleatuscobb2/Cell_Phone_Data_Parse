@@ -14,7 +14,7 @@
  * browser beyond the lifetime of this component's state.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -313,6 +313,53 @@ export default function MessageSummarizer() {
   const [peopleOnly, setPeopleOnly] = useState(true);
   // Relevance filter: "auto" (on for large runs), "on", or "off".
   const [smartFilter, setSmartFilter] = useState("auto");
+  // Async batch-backed job: { id, progress: {done,total} } while one runs.
+  const [job, setJob] = useState(null);
+
+  // Poll a running job until it finishes; render the report when done. The
+  // batch runs server-side, so this survives a reload (see the resume effect).
+  useEffect(() => {
+    if (!job?.id) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await apiFetch(`/jobs/${job.id}`, { method: "GET" });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.detail || `Job failed (${res.status})`);
+        if (data.status === "processing") {
+          setJob((j) => (j ? { ...j, progress: data.progress } : j));
+          return;
+        }
+        if (data.status === "error") setError(data.detail || "The analysis job failed.");
+        else if (data.status === "done") setResult(data.result);
+        localStorage.removeItem("casefile_job");
+        setJob(null);
+        setLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        setError(describeFetchError(err));
+        localStorage.removeItem("casefile_job");
+        setJob(null);
+        setLoading(false);
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 12000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [job?.id]);
+
+  // Resume a job that was still running when the tab was closed/reloaded.
+  useEffect(() => {
+    const saved = localStorage.getItem("casefile_job");
+    if (saved) {
+      setLoading(true);
+      setJob({ id: saved, progress: null });
+    }
+  }, []);
 
   // Load the contact roster from every file currently chosen.
   const loadContacts = useCallback(async (texts, emails, email) => {
@@ -509,9 +556,11 @@ export default function MessageSummarizer() {
       if (searchTerms.trim()) form.append("search_terms", searchTerms.trim());
     }
 
-    // With Storage enabled, files go to Cloud Storage (no 32 MB request wall)
-    // and the request carries only a manifest; otherwise send bodies inline.
+    // With Storage enabled (production), files go to Cloud Storage and the run
+    // becomes an async, batch-backed job the client polls — no window cap, and
+    // it survives a closed tab. Dev with no Storage posts bodies synchronously.
     let cleanupPaths = [];
+    let jobStarted = false;
     try {
       if (storageEnabled) {
         setCondensing("Uploading files to secure storage…");
@@ -527,24 +576,33 @@ export default function MessageSummarizer() {
         );
         cleanupPaths = paths;
         form.append("storage_manifest", JSON.stringify(manifest));
+        form.append("job_kind", mode === "custody" ? "custody" : "summary");
+        setCondensing("Submitting analysis job…");
+        const res = await apiFetch("/jobs", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+        localStorage.setItem("casefile_job", data.job_id);
+        setJob({ id: data.job_id, progress: { done: 0, total: data.windows || 0 } });
+        jobStarted = true;
         setCondensing(null);
       } else {
         for (const [field, files] of Object.entries(fileCategories)) {
           for (const f of files) form.append(field, f);
         }
+        const res = await apiFetch(endpoint, { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+        setResult(data);
       }
-      const res = await apiFetch(endpoint, { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
-      setResult(data);
     } catch (err) {
       setError(describeFetchError(err));
-      // The backend deletes uploads once it finishes; if the request never got
-      // there (e.g. an upload/network failure), clean them up ourselves.
+      // The job deletes uploads when it finishes; if the request never got
+      // there (upload/network failure), clean them up ourselves.
       if (cleanupPaths.length) deleteFromStorage(cleanupPaths);
     } finally {
       setCondensing(null);
-      setLoading(false);
+      // A started job keeps the loading state; the poll effect clears it.
+      if (!jobStarted) setLoading(false);
     }
   }
 
@@ -973,8 +1031,37 @@ export default function MessageSummarizer() {
         )}
       </div>
 
-      {/* --- Processing animation --- */}
-      {loading && <LoadingAnimation mode={mode} />}
+      {/* --- Processing animation (upload / sync run; the job card replaces
+           it once a batch job is running) --- */}
+      {loading && !job && <LoadingAnimation mode={mode} />}
+
+      {/* --- Async job progress --- */}
+      {job && (
+        <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900">
+          <div className="font-semibold">
+            {job.progress?.total
+              ? `Analyzing — ${job.progress.done || 0} of ${job.progress.total} windows complete`
+              : "Resuming your analysis…"}
+          </div>
+          {job.progress?.total > 0 && (
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-indigo-200">
+              <div
+                className="h-full rounded-full bg-indigo-600 transition-all"
+                style={{
+                  width: `${Math.round(
+                    ((job.progress.done || 0) / job.progress.total) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
+          )}
+          <div className="mt-2 text-indigo-700">
+            This runs on the batch service to keep costs down — it can take a few
+            minutes. You can leave this page and come back; the report will be
+            here when it's done.
+          </div>
+        </div>
+      )}
 
       {/* --- Custody report --- */}
       {result?.report && <CustodyReport data={result} />}
