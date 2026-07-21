@@ -133,35 +133,38 @@ app.add_middleware(
 # Claude is constrained to return exactly this shape, so the frontend can
 # render it without defensive parsing.
 
+# Every field carries a default so a summary window whose response truncates
+# mid-JSON still validates into a partial result (which we then merge) instead
+# of failing the whole request — the same tolerance the custody schema uses.
 class ActionItem(BaseModel):
-    description: str
-    owner: str
-    priority: Literal["high", "medium", "low"]
+    description: str = ""
+    owner: str = ""
+    priority: Literal["high", "medium", "low"] = "medium"
 
 
 class ContactInsight(BaseModel):
-    name: str
-    relationship_note: str
+    name: str = ""
+    relationship_note: str = ""
 
 
 class SentimentPoint(BaseModel):
-    period: str  # e.g. "2024-01" or "Week of Mar 4"
-    sentiment_score: float  # -1.0 (very negative) .. 1.0 (very positive)
-    label: Literal["positive", "neutral", "negative"]
+    period: str = ""  # e.g. "2024-01" or "Week of Mar 4"
+    sentiment_score: float = 0.0  # -1.0 (very negative) .. 1.0 (very positive)
+    label: Literal["positive", "neutral", "negative"] = "neutral"
 
 
 class SearchFinding(BaseModel):
-    term: str
-    insight: str  # what the correspondence reveals about this term
+    term: str = ""
+    insight: str = ""  # what the correspondence reveals about this term
 
 
 class ConversationSummary(BaseModel):
-    key_takeaways: list[str]
-    action_items: list[ActionItem]
-    contact_insights: list[ContactInsight]
-    sentiment_trends: list[SentimentPoint]
-    search_findings: list[SearchFinding]
-    overall_sentiment: str
+    key_takeaways: list[str] = []
+    action_items: list[ActionItem] = []
+    contact_insights: list[ContactInsight] = []
+    sentiment_trends: list[SentimentPoint] = []
+    search_findings: list[SearchFinding] = []
+    overall_sentiment: str = ""
 
 
 # --- Custody-report schema ----------------------------------------------------
@@ -784,6 +787,114 @@ MAX_CHUNKS = 60                # refuse histories that would need more windows
 CHUNK_CONCURRENCY = 8          # windows analyzed in parallel
 
 
+# After merging several windows, each list is capped so the combined summary
+# stays readable (and small enough not to overflow when re-summarized).
+_SUMMARY_CAPS = {
+    "key_takeaways": 20, "action_items": 30, "contact_insights": 25,
+    "sentiment_trends": 120, "search_findings": 40,
+}
+
+
+def _merge_summaries(parts: list[ConversationSummary]) -> ConversationSummary:
+    """Merge per-window ConversationSummary objects into one, de-duplicating
+    and capping each list so a windowed summary reads like a single one."""
+    parts = [p for p in parts if p is not None]
+    if not parts:
+        return ConversationSummary()
+    if len(parts) == 1:
+        return parts[0]
+
+    seen_take: set[str] = set()
+    takeaways: list[str] = []
+    for p in parts:
+        for t in p.key_takeaways:
+            key = t.strip().lower()
+            if t.strip() and key not in seen_take:
+                seen_take.add(key)
+                takeaways.append(t)
+
+    actions: list[ActionItem] = [a for p in parts for a in p.action_items]
+
+    contacts: dict[str, ContactInsight] = {}
+    for p in parts:
+        for ci in p.contact_insights:
+            contacts.setdefault(ci.name.strip().lower(), ci)
+
+    # One sentiment point per period; a later window supersedes an earlier
+    # read of the same period. Sorted so the trend line stays chronological.
+    by_period: dict[str, SentimentPoint] = {}
+    for p in parts:
+        for sp in p.sentiment_trends:
+            by_period[sp.period] = sp
+    trends = [by_period[k] for k in sorted(by_period)]
+
+    # Search findings: one entry per term, insights across windows joined.
+    finding_order: list[str] = []
+    finding_text: dict[str, list[str]] = {}
+    for p in parts:
+        for sf in p.search_findings:
+            if sf.term not in finding_text:
+                finding_text[sf.term] = []
+                finding_order.append(sf.term)
+            if sf.insight.strip():
+                finding_text[sf.term].append(sf.insight.strip())
+    findings = [
+        SearchFinding(term=t, insight=" ".join(finding_text[t]))
+        for t in finding_order
+    ]
+
+    sentiments: list[str] = []
+    for p in parts:
+        s = (p.overall_sentiment or "").strip()
+        if s and s not in sentiments:
+            sentiments.append(s)
+
+    return ConversationSummary(
+        key_takeaways=takeaways[:_SUMMARY_CAPS["key_takeaways"]],
+        action_items=actions[:_SUMMARY_CAPS["action_items"]],
+        contact_insights=list(contacts.values())[:_SUMMARY_CAPS["contact_insights"]],
+        sentiment_trends=trends[:_SUMMARY_CAPS["sentiment_trends"]],
+        search_findings=findings[:_SUMMARY_CAPS["search_findings"]],
+        overall_sentiment=" ".join(sentiments)[:2000],
+    )
+
+
+def _summarize_window(msgs: list, scope_lines: list[str], window_note: str) -> ConversationSummary:
+    """Summarize one window of messages. Synchronous — invoked via
+    asyncio.to_thread so windows run concurrently."""
+    condensed = to_condensed_string(msgs)
+    note = f"{window_note}\n\n" if window_note else ""
+    user_content = "\n\n".join(
+        scope_lines + [f"{note}Here is the message history transcript:\n\n{condensed}"]
+    )
+    try:
+        return _structured_extract(
+            ConversationSummary,
+            system_text=SYSTEM_PROMPT,
+            user_content=user_content,
+            max_tokens=MAX_OUTPUT_TOKENS,
+        )
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+
+
+def _summarize_resilient(msgs: list, scope_lines: list[str], window_note: str = "") -> ConversationSummary:
+    """Summarize a window; if the response truncates or fails validation,
+    split the transcript in half and merge — so a dense selection can never
+    fail the whole request. A span that fails down to one message is dropped."""
+    try:
+        return _summarize_window(msgs, scope_lines, window_note)
+    except HTTPException as e:
+        if e.status_code != 413 or len(msgs) <= 1:
+            if len(msgs) <= 1:
+                return ConversationSummary()  # skip an unsummarizable single message
+            raise
+    mid = len(msgs) // 2
+    left = _summarize_resilient(msgs[:mid], scope_lines, f"{window_note} (split A)".strip())
+    right = _summarize_resilient(msgs[mid:], scope_lines, f"{window_note} (split B)".strip())
+    return _merge_summaries([left, right])
+
+
 @app.post("/summarize")
 async def summarize(
     file: list[UploadFile] | None = File(None),
@@ -840,30 +951,48 @@ async def summarize(
         scope_lines + [f"Here is the message history transcript:\n\n{condensed}"]
     )
 
-    # 5. Context-window guard — never silently truncate.
-    token_count = client.messages.count_tokens(
-        model=MODEL,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-    ).input_tokens
-    if token_count > MAX_INPUT_TOKENS:
-        raise HTTPException(
-            413,
-            f"The selected messages are too large ({token_count:,} tokens) for a "
-            f"single request. Narrow the date range, contact, or search terms.",
-        )
-
-    # 6. Summarize. Structured output guarantees the response shape; the
-    #    system prompt is cached so repeat requests are cheaper.
+    # 5. Token accounting for the meta panel. Best-effort: this is no longer a
+    #    hard limit (a large selection is windowed below), and a failure here
+    #    (e.g. billing) must not 500 the request — the summarization call below
+    #    surfaces the real API error with an actionable message.
     try:
-        summary = _structured_extract(
-            ConversationSummary,
-            system_text=SYSTEM_PROMPT,
-            user_content=user_content,
-            max_tokens=32000,
+        token_count = client.messages.count_tokens(
+            model=MODEL,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
+        ).input_tokens
+    except anthropic.APIStatusError:
+        token_count = 0
+
+    # 6. Summarize. A long selection is split into chronological windows, each
+    #    summarized independently (and split further if a window still
+    #    overflows the response), then merged — so a large date range or a
+    #    dense thread never fails outright.
+    chunks = _split_into_chunks(transcript_messages, CHUNK_CHARS)
+    if len(chunks) > MAX_CHUNKS:
+        raise HTTPException(413, _over_capacity_message(transcript_messages, len(chunks)))
+    if len(chunks) <= 1:
+        summary = await asyncio.to_thread(
+            _summarize_resilient, transcript_messages, scope_lines, ""
         )
-    except anthropic.APIStatusError as e:
-        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+    else:
+        sem = asyncio.Semaphore(CHUNK_CONCURRENCY)
+
+        async def run_window(idx: int, chunk: list) -> ConversationSummary:
+            async with sem:
+                note = (
+                    f"This is window {idx + 1} of {len(chunks)}, covering "
+                    f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
+                    f"Summarize only this window; results are merged with the others."
+                )
+                return await asyncio.to_thread(
+                    _summarize_resilient, chunk, scope_lines, note
+                )
+
+        parts = await asyncio.gather(
+            *(run_window(i, ch) for i, ch in enumerate(chunks))
+        )
+        summary = _merge_summaries(list(parts))
 
     body = {
         "meta": {
