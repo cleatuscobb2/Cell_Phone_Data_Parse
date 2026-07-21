@@ -1099,6 +1099,29 @@ def _coerce_tool_payload(payload):
     return payload
 
 
+def _unwrap_tool_envelope(payload, expected_keys):
+    """Some models wrap the whole tool-argument object under a single bogus
+    key — e.g. `{"$PARAMETER_NAME": {...}}` or `{"input": {...}}` — instead of
+    returning the fields at the top level. When the payload is a one-key dict
+    whose value is a dict and NONE of the model's expected fields are present
+    at the top level, unwrap it (once). A correct payload shares at least one
+    expected key, so it is never unwrapped."""
+    if (
+        isinstance(payload, dict)
+        and len(payload) == 1
+        and not (set(expected_keys) & payload.keys())
+    ):
+        inner = next(iter(payload.values()))
+        if isinstance(inner, str) and inner.strip()[:1] in "[{":
+            try:
+                inner = json.loads(inner)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        if isinstance(inner, dict):
+            return inner
+    return payload
+
+
 def _structured_extract(
     output_model: type[BaseModel],
     *,
@@ -1137,7 +1160,10 @@ def _structured_extract(
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit":
             try:
-                return output_model.model_validate(_coerce_tool_payload(block.input))
+                payload = _unwrap_tool_envelope(
+                    _coerce_tool_payload(block.input), output_model.model_fields
+                )
+                return output_model.model_validate(payload)
             except ValidationError as ve:
                 import sys
                 locs = "; ".join(
