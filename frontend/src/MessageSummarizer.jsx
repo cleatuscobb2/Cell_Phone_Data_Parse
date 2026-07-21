@@ -34,7 +34,13 @@ import CustodyIntake from "./CustodyIntake.jsx";
 import CardLookup from "./CardLookup.jsx";
 import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
-import { getIdToken } from "./firebase.js";
+import {
+  getIdToken,
+  storageEnabled,
+  currentUid,
+  uploadToStorage,
+  deleteFromStorage,
+} from "./firebase.js";
 import {
   condenseMboxFile,
   CONDENSE_THRESHOLD,
@@ -50,6 +56,17 @@ import {
 // the odd large field can't push a just-under upload over the real limit.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+// When Storage is enabled the request body carries only a tiny manifest, so
+// the 32 MB request wall no longer applies. Files still get downloaded and
+// processed in a 1 GB function, so keep a generous ceiling on the (already
+// condensed + gzipped) upload total. Phases 2/3 remove this too via streaming.
+const STORAGE_MAX_BYTES = 200 * 1024 * 1024;
+
+/** The effective per-request upload cap for the active transport. */
+function uploadCap() {
+  return storageEnabled ? STORAGE_MAX_BYTES : MAX_UPLOAD_BYTES;
+}
+
 /** Turn a raw fetch/transport failure into guidance the user can act on. */
 function describeFetchError(err) {
   const msg = err?.message || "";
@@ -62,6 +79,35 @@ function describeFetchError(err) {
     );
   }
   return msg || "Could not reach the analysis service.";
+}
+
+/**
+ * Upload each category's files to Cloud Storage and return a manifest plus the
+ * object paths (for cleanup). `categories` maps a backend form-field name to
+ * its File[]. Files go under uploads/{uid}/{sessionId}/{field}/ — the backend
+ * verifies that prefix so a user can only ever read their own uploads.
+ */
+async function uploadToStorageManifest(categories, onProgress) {
+  const uid = currentUid();
+  const sessionId =
+    (crypto.randomUUID && crypto.randomUUID()) ||
+    `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const manifest = {};
+  const paths = [];
+  for (const [field, files] of Object.entries(categories)) {
+    if (!files || files.length === 0) continue;
+    const entries = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const safe = (f.name || "file").replace(/[^\w.\-]+/g, "_");
+      const path = `uploads/${uid}/${sessionId}/${field}/${i}-${safe}`;
+      await uploadToStorage(f, path, onProgress);
+      entries.push({ path, name: f.name || safe });
+      paths.push(path);
+    }
+    manifest[field] = entries;
+  }
+  return { manifest, paths };
 }
 
 // Local dev defaults to the FastAPI proxy; production must set VITE_API_BASE
@@ -280,21 +326,34 @@ export default function MessageSummarizer() {
     const total = [...(texts || []), ...(emails || [])].reduce(
       (s, f) => s + f.size, 0,
     );
-    if (total > MAX_UPLOAD_BYTES) {
+    if (total > uploadCap()) {
       setError(
         `These files total ${(total / 1048576).toFixed(0)} MB — over the ` +
-          `${(MAX_UPLOAD_BYTES / 1048576).toFixed(0)} MB per-request limit. ` +
+          `${(uploadCap() / 1048576).toFixed(0)} MB limit. ` +
           `Export a narrower date range or split into smaller files.`,
       );
       setContacts([]);
       return;
     }
     setContactsLoading(true);
+    // When Storage is enabled the roster call uploads to Storage too (the raw
+    // files can exceed the 32 MB request limit); those transient objects are
+    // deleted right after, since the report will re-upload what it needs.
+    let cleanupPaths = [];
     try {
       const form = new FormData();
-      for (const f of texts || []) form.append("file", f);
-      for (const f of emails || []) form.append("email_file", f);
       if (email?.trim()) form.append("user_email", email.trim());
+      if (storageEnabled) {
+        const { manifest, paths } = await uploadToStorageManifest({
+          file: texts || [],
+          email_file: emails || [],
+        });
+        cleanupPaths = paths;
+        form.append("storage_manifest", JSON.stringify(manifest));
+      } else {
+        for (const f of texts || []) form.append("file", f);
+        for (const f of emails || []) form.append("email_file", f);
+      }
       const res = await apiFetch("/contacts", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Failed to read file (${res.status})`);
@@ -303,6 +362,7 @@ export default function MessageSummarizer() {
       setError(describeFetchError(err));
     } finally {
       setContactsLoading(false);
+      if (cleanupPaths.length) deleteFromStorage(cleanupPaths);
     }
   }, []);
 
@@ -373,16 +433,16 @@ export default function MessageSummarizer() {
   }
 
   /** Reject over-cap payloads with a useful message instead of letting the
-      backend's 32 MB request limit surface as "Failed to fetch". */
+      backend's request/memory limit surface as "Failed to fetch". */
   function payloadTooLarge() {
     const files = allQueuedFiles();
     const total = files.reduce((s, f) => s + f.size, 0);
-    if (total <= MAX_UPLOAD_BYTES) return null;
+    if (total <= uploadCap()) return null;
     const biggest = files.reduce((a, b) => (a.size >= b.size ? a : b));
     return (
-      `Upload total is ${(total / 1048576).toFixed(0)} MB — the analysis ` +
-      `service accepts at most ${(MAX_UPLOAD_BYTES / 1048576).toFixed(0)} MB ` +
-      `per request. The largest file is "${biggest.name}" ` +
+      `Upload total is ${(total / 1048576).toFixed(0)} MB — over the ` +
+      `${(uploadCap() / 1048576).toFixed(0)} MB limit for a single report. ` +
+      `The largest file is "${biggest.name}" ` +
       `(${(biggest.size / 1048576).toFixed(0)} MB); narrow the export's date ` +
       `range or split it into smaller files.`
     );
@@ -413,13 +473,15 @@ export default function MessageSummarizer() {
     setResult(null);
 
     const form = new FormData();
-    for (const f of textFiles) form.append("file", f);
-    for (const f of emailFiles) form.append("email_file", f);
     if (userEmail.trim()) form.append("user_email", userEmail.trim());
     if (startDate) form.append("start_date", startDate);
     if (endDate) form.append("end_date", endDate);
     for (const c of selectedContacts) form.append("contact", c);
     if (isCustody) form.append("smart_filter", smartFilter);
+
+    // Files sent to the backend, grouped by form-field name. Message channels
+    // always; financial channels only for a custody report.
+    const fileCategories = { file: textFiles, email_file: emailFiles };
 
     let endpoint;
     if (mode === "custody") {
@@ -432,10 +494,10 @@ export default function MessageSummarizer() {
       if (Object.keys(caseProfile).length > 0) {
         form.append("case_profile", JSON.stringify(caseProfile));
       }
-      for (const f of receiptFiles) form.append("receipt_files", f);
-      for (const f of eobFiles) form.append("eob_files", f);
-      for (const f of paymentCsvFiles) form.append("payment_files", f);
-      for (const f of bankCsvFiles) form.append("bank_files", f);
+      fileCategories.receipt_files = receiptFiles;
+      fileCategories.eob_files = eobFiles;
+      fileCategories.payment_files = paymentCsvFiles;
+      fileCategories.bank_files = bankCsvFiles;
       if (Object.keys(cardLookup).length > 0) {
         form.append("card_lookup", JSON.stringify(cardLookup));
       }
@@ -447,14 +509,41 @@ export default function MessageSummarizer() {
       if (searchTerms.trim()) form.append("search_terms", searchTerms.trim());
     }
 
+    // With Storage enabled, files go to Cloud Storage (no 32 MB request wall)
+    // and the request carries only a manifest; otherwise send bodies inline.
+    let cleanupPaths = [];
     try {
+      if (storageEnabled) {
+        setCondensing("Uploading files to secure storage…");
+        const { manifest, paths } = await uploadToStorageManifest(
+          fileCategories,
+          (sent, tot) => {
+            if (tot) {
+              setCondensing(
+                `Uploading to secure storage — ${Math.round((sent / tot) * 100)}%`,
+              );
+            }
+          },
+        );
+        cleanupPaths = paths;
+        form.append("storage_manifest", JSON.stringify(manifest));
+        setCondensing(null);
+      } else {
+        for (const [field, files] of Object.entries(fileCategories)) {
+          for (const f of files) form.append(field, f);
+        }
+      }
       const res = await apiFetch(endpoint, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
       setResult(data);
     } catch (err) {
       setError(describeFetchError(err));
+      // The backend deletes uploads once it finishes; if the request never got
+      // there (e.g. an upload/network failure), clean them up ourselves.
+      if (cleanupPaths.length) deleteFromStorage(cleanupPaths);
     } finally {
+      setCondensing(null);
       setLoading(false);
     }
   }

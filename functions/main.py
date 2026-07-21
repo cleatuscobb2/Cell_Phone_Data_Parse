@@ -36,6 +36,7 @@ from typing import Literal
 import anthropic
 import firebase_admin
 from firebase_admin import auth as fb_auth
+from firebase_admin import storage as fb_storage
 from firebase_functions import https_fn, options
 from pydantic import BaseModel, ValidationError, field_validator
 
@@ -62,7 +63,12 @@ from relevance import (
     prefilter,
 )
 
-firebase_admin.initialize_app()
+# The default Cloud Storage bucket. Large uploads are sent here by the client
+# (resumable, no 32 MB request limit) and referenced in the request by path;
+# the backend downloads them, processes, and deletes them.
+STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "family-legal-311e8.firebasestorage.app")
+
+firebase_admin.initialize_app(options={"storageBucket": STORAGE_BUCKET})
 
 # The analysis model is configurable so the app can point at an
 # Anthropic-compatible endpoint (DeepSeek, Moonshot/Kimi, etc.) without code
@@ -694,15 +700,104 @@ def _parse_email_upload(raw: bytes, filename: str, user_email: str | None) -> li
     return parse_emails(raw, filename, user_email)
 
 
+# --- Cloud Storage uploads ----------------------------------------------------
+# Large uploads bypass the 32 MB request limit by going to Cloud Storage; the
+# request then carries only a JSON manifest of object paths per field. We
+# download them here into an object that quacks like werkzeug's FileStorage
+# (.read()/.filename) so the rest of the pipeline is unchanged.
+
+class _StorageFile:
+    """A file uploaded to Cloud Storage, adapted to the FileStorage interface
+    the parsers expect."""
+
+    def __init__(self, data: bytes, filename: str):
+        self._data = data
+        self.filename = filename
+
+    def read(self) -> bytes:
+        return self._data
+
+
+# Per-request map of {field_name: [_StorageFile, ...]} plus the object paths to
+# delete once the request finishes. Set in the dispatcher after auth.
+_storage_files: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_storage_files", default=None,
+)
+_storage_cleanup: contextvars.ContextVar[list] = contextvars.ContextVar(
+    "_storage_cleanup", default=None,
+)
+
+
+def _load_storage_manifest(req: https_fn.Request, uid: str) -> None:
+    """Download every object named in the request's `storage_manifest` field
+    and stash them by form-field name for `_uploads()`. Each path MUST live
+    under this user's own `uploads/{uid}/` prefix — reject anything else so a
+    signed-in user can never read another account's files."""
+    raw = req.form.get("storage_manifest")
+    if not raw:
+        _storage_files.set({})
+        _storage_cleanup.set([])
+        return
+    try:
+        manifest = json.loads(raw)
+        assert isinstance(manifest, dict)
+    except (json.JSONDecodeError, TypeError, AssertionError):
+        raise ApiError(400, "Malformed storage manifest.")
+    prefix = f"uploads/{uid}/"
+    bucket = fb_storage.bucket()
+    by_field: dict = {}
+    to_delete: list = []
+    for field, entries in manifest.items():
+        files = []
+        for entry in entries or []:
+            path = (entry or {}).get("path", "")
+            name = (entry or {}).get("name") or path.rsplit("/", 1)[-1]
+            if not path.startswith(prefix):
+                raise ApiError(403, "An upload path is outside your account.")
+            blob = bucket.blob(path)
+            try:
+                data = blob.download_as_bytes()
+            except Exception:
+                raise ApiError(
+                    422, f"Could not read an uploaded file ({name}); re-upload and retry."
+                )
+            files.append(_StorageFile(data, name))
+            to_delete.append(path)
+        by_field[field] = files
+    _storage_files.set(by_field)
+    _storage_cleanup.set(to_delete)
+
+
+def _cleanup_storage() -> None:
+    """Delete this request's uploaded objects — nothing is retained after the
+    report is produced (auto-delete after processing)."""
+    paths = _storage_cleanup.get() or []
+    if not paths:
+        return
+    bucket = fb_storage.bucket()
+    for path in paths:
+        try:
+            bucket.blob(path).delete()
+        except Exception:
+            pass  # best-effort; a storage lifecycle rule is the backstop
+
+
+def _uploads(req: https_fn.Request, field: str) -> list:
+    """All files for a form field — those in the request body PLUS any that
+    came via the Cloud Storage manifest."""
+    from_storage = (_storage_files.get() or {}).get(field, [])
+    return list(req.files.getlist(field)) + list(from_storage)
+
+
 def _collect_messages(req: https_fn.Request) -> list:
     """Read every upload across both channels, parse each, merge by time.
     Multiple files per channel are supported — useful when a parent has
     several text exports or multiple .eml/.mbox files."""
     messages: list = []
     user_email = req.form.get("user_email")
-    for f in req.files.getlist("file"):
+    for f in _uploads(req, "file"):
         messages += _parse_text_upload(f.read(), f.filename or "")
-    for ef in req.files.getlist("email_file"):
+    for ef in _uploads(req, "email_file"):
         messages += _parse_email_upload(ef.read(), ef.filename or "", user_email)
     if not messages:
         raise ApiError(
@@ -1875,19 +1970,19 @@ def handle_custody(req: https_fn.Request) -> dict:
     # payment, bank) instead of sum.
     receipt_payload: list[tuple[bytes, str]] = [
         (rf.read(), rf.filename or "")
-        for rf in req.files.getlist("receipt_files")
+        for rf in _uploads(req, "receipt_files")
     ]
     eob_payload: list[tuple[bytes, str]] = [
         (ef.read(), ef.filename or "")
-        for ef in req.files.getlist("eob_files")
+        for ef in _uploads(req, "eob_files")
     ]
     csv_rows: list[dict] = []
-    for pf in req.files.getlist("payment_files"):
+    for pf in _uploads(req, "payment_files"):
         csv_rows.extend(
             _parse_payment_csv(pf.read(), pf.filename or "", len(csv_rows))
         )
     bank_rows: list[dict] = []
-    for bf in req.files.getlist("bank_files"):
+    for bf in _uploads(req, "bank_files"):
         bank_rows.extend(
             _parse_bank_csv(bf.read(), bf.filename or "", len(bank_rows))
         )
@@ -1985,15 +2080,17 @@ def _json(data: dict, status: int = 200) -> https_fn.Response:
     )
 
 
-def _require_auth(req: https_fn.Request) -> None:
-    """Reject the request unless it carries a valid Firebase ID token."""
+def _require_auth(req: https_fn.Request) -> str:
+    """Reject the request unless it carries a valid Firebase ID token.
+    Returns the authenticated user's uid (used to scope Storage access)."""
     header = req.headers.get("Authorization", "")
     if not header.startswith("Bearer "):
         raise ApiError(401, "Sign-in required.")
     try:
-        fb_auth.verify_id_token(header[len("Bearer "):])
+        decoded = fb_auth.verify_id_token(header[len("Bearer "):])
     except Exception:
         raise ApiError(401, "Invalid or expired sign-in. Please sign in again.")
+    return decoded.get("uid", "")
 
 
 @https_fn.on_request(
@@ -2015,16 +2112,23 @@ def api(req: https_fn.Request) -> https_fn.Response:
             return _json({"status": "ok", "model": MODEL})
 
         # Every analysis route requires a signed-in user.
-        _require_auth(req)
-
-        if path == "/contacts" and req.method == "POST":
-            return _json({"contacts": list_conversations(_collect_messages(req))})
-        if path == "/summarize" and req.method == "POST":
-            return _json(handle_summarize(req))
-        if path == "/custody-report" and req.method == "POST":
-            return _json(handle_custody(req))
-
-        return _json({"detail": f"No route for {req.method} {path}."}, 404)
+        uid = _require_auth(req)
+        # Pull in any files uploaded to Cloud Storage (large-upload path). The
+        # roster call reuses the same objects the eventual report will need, so
+        # only the report endpoints delete them (auto-delete after processing);
+        # abandoned uploads are swept by the bucket's lifecycle rule.
+        _load_storage_manifest(req, uid)
+        try:
+            if path == "/contacts" and req.method == "POST":
+                return _json({"contacts": list_conversations(_collect_messages(req))})
+            if path == "/summarize" and req.method == "POST":
+                return _json(handle_summarize(req))
+            if path == "/custody-report" and req.method == "POST":
+                return _json(handle_custody(req))
+            return _json({"detail": f"No route for {req.method} {path}."}, 404)
+        finally:
+            if path in ("/summarize", "/custody-report"):
+                _cleanup_storage()
     except ApiError as e:
         return _json({"detail": e.message}, e.status)
     except Exception as e:  # pragma: no cover - last-resort guard
