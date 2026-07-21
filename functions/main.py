@@ -1558,6 +1558,9 @@ def _extract_rows_chunked(
         )
 
     def one(chunk: list[dict]) -> list[Expense]:
+        """Extract one chunk. If a dense chunk overflows the response (413),
+        split it in half and retry — down to skipping a single unparseable
+        row — so a statement can never fail the whole report."""
         user_content = (
             "\n".join(case_context)
             + "\n\nCard-lookup mapping (last-4 → parent): "
@@ -1573,9 +1576,16 @@ def _extract_rows_chunked(
                 max_tokens=8000,
                 use_thinking=False,
             )
+            return list(parsed.expenses)
         except anthropic.APIStatusError as e:
             raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
-        return list(parsed.expenses)
+        except ApiError as e:
+            if e.status != 413:
+                raise
+            if len(chunk) <= 1:
+                return []  # skip a single unparseable row rather than fail all
+        mid = len(chunk) // 2
+        return one(chunk[:mid]) + one(chunk[mid:])
 
     chunks = [rows[i:i + chunk_size] for i in range(0, len(rows), chunk_size)]
     if len(chunks) == 1:
@@ -1660,6 +1670,14 @@ def _extract_receipts(
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ApiError as e:
+        if e.status != 413:
+            raise
+        raise ApiError(
+            413,
+            f"Too many line items across these {len(files)} receipts to extract "
+            f"in one pass. Upload fewer receipts at a time.",
+        )
     return list(parsed.expenses)
 
 
@@ -1724,6 +1742,14 @@ def _extract_eob_expenses(
         )
     except anthropic.APIStatusError as e:
         raise ApiError(502, f"Claude API error ({e.status_code}): {e.message}")
+    except ApiError as e:
+        if e.status != 413:
+            raise
+        raise ApiError(
+            413,
+            f"Too many service lines across these {len(files)} EOBs to extract "
+            f"in one pass. Upload fewer EOBs at a time.",
+        )
     return list(parsed.expenses)
 
 
