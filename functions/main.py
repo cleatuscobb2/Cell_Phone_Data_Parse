@@ -36,6 +36,7 @@ from typing import Literal
 import anthropic
 import firebase_admin
 from firebase_admin import auth as fb_auth
+from firebase_admin import firestore as fb_firestore
 from firebase_admin import storage as fb_storage
 from firebase_functions import https_fn, options
 from pydantic import BaseModel, ValidationError, field_validator
@@ -2040,6 +2041,416 @@ def handle_custody(req: https_fn.Request) -> dict:
     }
 
 
+# --- Async jobs (Batch API) ---------------------------------------------------
+# A large run can exceed the synchronous window cap and outlast a single
+# request. A job submits every message window to the Anthropic Batch API (50%
+# cost) and returns immediately; the client polls /jobs/{id}, which assembles
+# the report once the batch ends. Lightweight status lives in Firestore; the
+# bulky job context and the finished report live in Storage (Firestore's 1 MB
+# doc limit is far too small for a full transcript + report).
+
+# Message windows per job. Batches handle far more than the synchronous path.
+BATCH_WINDOW_CAP = int(os.getenv("BATCH_WINDOW_CAP", "600"))
+
+
+def _db():
+    return fb_firestore.client()
+
+
+def _job_blob_path(uid: str, job_id: str) -> str:
+    return f"jobs/{uid}/{job_id}.json"
+
+
+def _result_blob_path(uid: str, job_id: str) -> str:
+    return f"results/{uid}/{job_id}.json"
+
+
+def _write_json_blob(path: str, obj) -> None:
+    fb_storage.bucket().blob(path).upload_from_string(
+        json.dumps(obj, default=str), content_type="application/json",
+    )
+
+
+def _read_json_blob(path: str):
+    return json.loads(fb_storage.bucket().blob(path).download_as_text())
+
+
+def _delete_blob(path: str) -> None:
+    try:
+        fb_storage.bucket().blob(path).delete()
+    except Exception:
+        pass
+
+
+def _custody_window_params(chunk: list, context: list[str], note: str) -> dict:
+    condensed = to_condensed_string(chunk)
+    user_content = "\n".join(context) + (
+        f"\n\n{note}\n\nHere is this portion of the transcript:\n\n{condensed}"
+    )
+    return {
+        "model": MODEL,
+        "max_tokens": min(MAX_OUTPUT_TOKENS, 32000),
+        "system": _system_blocks(CUSTODY_PROMPT),
+        "messages": [{"role": "user", "content": user_content}],
+        "tools": [{
+            "name": "submit",
+            "description": "Submit the structured analysis.",
+            "input_schema": CustodyExtraction.model_json_schema(),
+        }],
+        "tool_choice": {"type": "tool", "name": "submit"},
+    }
+
+
+def _summary_window_params(chunk: list, scope_lines: list[str], note: str) -> dict:
+    condensed = to_condensed_string(chunk)
+    user_content = "\n\n".join(
+        scope_lines + [f"{note}\n\nHere is the message history transcript:\n\n{condensed}"]
+    )
+    return {
+        "model": MODEL,
+        "max_tokens": min(MAX_OUTPUT_TOKENS, 32000),
+        "system": _system_blocks(SYSTEM_PROMPT),
+        "messages": [{"role": "user", "content": user_content}],
+        "tools": [{
+            "name": "submit",
+            "description": "Submit the structured analysis.",
+            "input_schema": ConversationSummary.model_json_schema(),
+        }],
+        "tool_choice": {"type": "tool", "name": "submit"},
+    }
+
+
+def _batch_result_payload(message, model_cls):
+    """Validate the submit-tool output from a completed batch message into
+    `model_cls`, or None if it didn't call the tool / failed validation."""
+    for block in message.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "submit":
+            try:
+                return model_cls.model_validate(_unwrap_tool_envelope(
+                    _coerce_tool_payload(block.input), model_cls.model_fields))
+            except ValidationError:
+                return None
+    return None
+
+
+def _create_job(uid: str, kind: str, requests: list, blob: dict,
+                cleanup_paths: list) -> str:
+    """Submit the message-window batch, persist the job context to Storage, and
+    write the Firestore status doc. Returns the job id."""
+    if len(requests) > BATCH_WINDOW_CAP:
+        raise ApiError(
+            413,
+            f"This selection needs {len(requests)} windows — over the "
+            f"{BATCH_WINDOW_CAP}-window per-job limit. Narrow the date range or "
+            f"pick fewer conversations.",
+        )
+    batch = client().messages.batches.create(requests=requests)
+    doc = _db().collection("jobs").document()
+    _write_json_blob(_job_blob_path(uid, doc.id), blob)
+    doc.set({
+        "uid": uid,
+        "kind": kind,
+        "status": "processing",
+        "batchId": batch.id,
+        "progress": {"done": 0, "total": len(requests)},
+        "blobPath": _job_blob_path(uid, doc.id),
+        "cleanupPaths": cleanup_paths,
+        "resultPath": None,
+        "error": None,
+    })
+    return doc.id
+
+
+def handle_jobs_create(req: https_fn.Request, uid: str) -> dict:
+    """POST /jobs — build the message-window batch for a custody or summary run
+    and return a job id the client polls. Financial extraction (bounded) runs
+    here synchronously; the message windows (the part that hits the cap) go to
+    the batch."""
+    form = req.form
+    kind = (form.get("job_kind") or "").strip()
+    if kind not in ("custody", "summary"):
+        raise ApiError(422, "Unknown job kind.")
+
+    messages = _collect_messages(req)
+    messages = filter_by_date(
+        messages,
+        _parse_date(form.get("start_date"), "start_date"),
+        _parse_date(form.get("end_date"), "end_date"),
+    )
+    contact = [c for c in form.getlist("contact") if c]
+    if contact:
+        messages = filter_by_contact(messages, contact)
+    terms = [t.strip() for t in (form.get("search_terms") or "").split(",") if t.strip()]
+    matched = messages
+    if kind == "summary":
+        matched = search_messages(messages, terms)
+        if terms and not matched:
+            raise ApiError(422, f"No messages matched the search terms: {', '.join(terms)}.")
+        messages = with_context(messages, matched, window=2) if terms else matched
+    if not messages:
+        raise ApiError(422, "No messages found for the selected filters.")
+    all_messages = messages
+    # Summary stats reflect the strict matches; custody reflects the full scope.
+    stats = compute_stats(matched if kind == "summary" else all_messages)
+
+    cleanup_paths = list(_storage_cleanup.get() or [])
+
+    if kind == "custody":
+        other_parent = (form.get("other_parent") or "").strip()
+        if not other_parent:
+            raise ApiError(422, "The other parent's name is required.")
+        user_role = form.get("user_role") or "mother"
+        kids = [c.strip() for c in (form.get("children") or "").split(",") if c.strip()]
+        context = [
+            f"The user ('Me' in the transcript) is the children's {user_role}.",
+            f"The other parent is named: {other_parent}.",
+        ]
+        if kids:
+            context.append(f"The children are: {', '.join(kids)}.")
+        profile: dict = {}
+        raw_profile = form.get("case_profile")
+        if raw_profile:
+            try:
+                parsed = json.loads(raw_profile)
+                if isinstance(parsed, dict):
+                    profile = parsed
+                    context.append("Case intake answers: " + json.dumps(profile))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Optional relevance filter (same policy as the synchronous path).
+        smart_filter = form.get("smart_filter") or "auto"
+        filter_stats = None
+        dropped_sample: list = []
+        do_filter = smart_filter == "on" or (
+            smart_filter == "auto" and len(all_messages) > FILTER_THRESHOLD
+        )
+        if do_filter and len(all_messages) > 1:
+            filtered, filter_stats, dropped_sample = _filter_relevant(
+                all_messages, kids, other_parent)
+            messages = filtered or all_messages
+            if not filtered:
+                filter_stats["note"] = "Filter matched nothing; analyzed all messages."
+
+        chunks = _split_into_chunks(messages, CHUNK_CHARS)
+        requests = [
+            {"custom_id": f"msg_{i}",
+             "params": _custody_window_params(ch, context, _window_note_txt(i, len(chunks), ch))}
+            for i, ch in enumerate(chunks)
+        ]
+
+        # Financial extraction runs synchronously here (bounded); results ride
+        # in the job blob and merge into the report at assembly.
+        cards = _parse_card_lookup(form.get("card_lookup"))
+        fin_context = list(context) + [
+            "When deciding `payer`, use the card-lookup above to resolve a "
+            "card-last-4 to the parent. If no card or sender info is visible, "
+            "set payer to 'unclear'.",
+        ]
+        expenses = _run_financial(req, cards, fin_context)
+
+        meta = {
+            "total_messages": stats["total_messages"],
+            "conversation_count": stats["conversation_count"],
+            "date_range": stats["date_range"],
+            "windows": len(chunks),
+            "other_parent": other_parent,
+            "user_role": user_role,
+            "children": kids,
+            "transcript_truncated": len(all_messages) > TRANSCRIPT_CAP,
+            "case_profile": profile,
+            "financial_inputs": _parse_financial_inputs(form.get("monthly_gross_income")),
+            "filter": filter_stats,
+            "filter_dropped_sample": dropped_sample,
+            "model": MODEL,
+            "jurisdiction": {
+                "state": (form.get("state") or "").strip(),
+                "county": (form.get("county") or "").strip(),
+            },
+            "contact": ", ".join(contact) if contact else None,
+            "date_filter": {
+                "start": form.get("start_date") or "",
+                "end": form.get("end_date") or "",
+            },
+        }
+        blob = {
+            "kind": "custody",
+            "context": context,
+            "num_windows": len(chunks),
+            "expenses": [e.model_dump() for e in expenses],
+            "meta": meta,
+            "transcript": messages_to_records(all_messages[:TRANSCRIPT_CAP]),
+        }
+        job_id = _create_job(uid, "custody", requests, blob, cleanup_paths)
+        return {"job_id": job_id, "windows": len(chunks)}
+
+    # --- summary ---
+    scope_lines: list[str] = []
+    if contact:
+        scope_lines.append(f"This transcript is the correspondence with: {', '.join(contact)}.")
+    if terms:
+        scope_lines.append(
+            "Focus the entire analysis on messages relevant to these search "
+            f"terms: {', '.join(terms)}. Produce a search finding for each term.")
+    chunks = _split_into_chunks(all_messages, CHUNK_CHARS)
+    requests = [
+        {"custom_id": f"msg_{i}",
+         "params": _summary_window_params(ch, scope_lines, _window_note_txt(i, len(chunks), ch))}
+        for i, ch in enumerate(chunks)
+    ]
+    blob = {
+        "kind": "summary",
+        "num_windows": len(chunks),
+        "meta": {
+            "total_messages": stats["total_messages"],
+            "conversation_count": stats["conversation_count"],
+            "date_range": stats["date_range"],
+            "contact": ", ".join(contact) if contact else None,
+            "search_terms": terms,
+        },
+        "stats": {"top_contacts": stats["top_contacts"], "volume": stats["volume"]},
+        "focused": bool(contact or terms),
+    }
+    job_id = _create_job(uid, "summary", requests, blob, cleanup_paths)
+    return {"job_id": job_id, "windows": len(chunks)}
+
+
+def _window_note_txt(idx: int, total: int, chunk: list) -> str:
+    return (
+        f"This is window {idx + 1} of {total}, covering "
+        f"{chunk[0].timestamp:%Y-%m-%d} to {chunk[-1].timestamp:%Y-%m-%d}. "
+        f"Analyze only this window; results are merged with the others."
+    )
+
+
+def _run_financial(req: https_fn.Request, cards: dict, fin_context: list[str]) -> list:
+    """Synchronous financial extraction for a job (bounded work). Mirrors the
+    synchronous custody handler's financial block."""
+    receipt_payload = [(rf.read(), rf.filename or "") for rf in _uploads(req, "receipt_files")]
+    eob_payload = [(ef.read(), ef.filename or "") for ef in _uploads(req, "eob_files")]
+    csv_rows: list[dict] = []
+    for pf in _uploads(req, "payment_files"):
+        csv_rows.extend(_parse_payment_csv(pf.read(), pf.filename or "", len(csv_rows)))
+    bank_rows: list[dict] = []
+    for bf in _uploads(req, "bank_files"):
+        bank_rows.extend(_parse_bank_csv(bf.read(), bf.filename or "", len(bank_rows)))
+    if not (receipt_payload or eob_payload or csv_rows or bank_rows):
+        return []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            "receipt": pool.submit(_extract_receipts, receipt_payload, cards, fin_context),
+            "eob": pool.submit(_extract_eob_expenses, eob_payload, cards, fin_context),
+            "payment": pool.submit(_extract_payment_expenses, csv_rows, cards, fin_context),
+            "bank": pool.submit(_extract_bank_expenses, bank_rows, cards, fin_context),
+        }
+        return (
+            list(futures["receipt"].result()) + list(futures["eob"].result())
+            + list(futures["payment"].result()) + list(futures["bank"].result())
+        )
+
+
+def handle_job_status(req: https_fn.Request, uid: str, job_id: str) -> dict:
+    """GET /jobs/{id} — report progress, and assemble the final report the first
+    time the batch is found ended."""
+    ref = _db().collection("jobs").document(job_id)
+    snap = ref.get()
+    if not snap.exists:
+        raise ApiError(404, "Job not found.")
+    job = snap.to_dict()
+    if job.get("uid") != uid:
+        raise ApiError(403, "Not your job.")
+
+    status = job.get("status")
+    if status == "error":
+        return {"status": "error", "detail": job.get("error") or "Job failed."}
+    if status == "done":
+        return {"status": "done", "result": _read_json_blob(job["resultPath"])}
+    if status == "assembling":
+        return {"status": "processing", "progress": job.get("progress"), "phase": "assembling"}
+
+    batch = client().messages.batches.retrieve(job["batchId"])
+    counts = getattr(batch, "request_counts", None)
+    total = job.get("progress", {}).get("total", 0)
+    done = 0
+    if counts is not None:
+        done = (getattr(counts, "succeeded", 0) + getattr(counts, "errored", 0)
+                + getattr(counts, "canceled", 0) + getattr(counts, "expired", 0))
+    if batch.processing_status != "ended":
+        ref.update({"progress": {"done": done, "total": total}})
+        return {"status": "processing", "progress": {"done": done, "total": total}}
+
+    # Batch ended — claim assembly so a concurrent poll doesn't duplicate it.
+    ref.update({"status": "assembling"})
+    try:
+        result = _assemble_job(uid, job_id, job)
+    except Exception as e:
+        ref.update({"status": "error", "error": f"Assembly failed: {e}"})
+        raise ApiError(500, f"Assembly failed: {e}")
+    return {"status": "done", "result": result}
+
+
+def _assemble_job(uid: str, job_id: str, job: dict) -> dict:
+    """Map batch results back to windows, merge into the final report, persist
+    it, and delete the uploads (auto-delete after processing)."""
+    blob = _read_json_blob(job["blobPath"])
+    by_id: dict = {}
+    for r in client().messages.batches.results(job["batchId"]):
+        by_id[r.custom_id] = r
+    n = blob["num_windows"]
+    kind = blob["kind"]
+
+    if kind == "custody":
+        partials = []
+        skipped = 0
+        for i in range(n):
+            r = by_id.get(f"msg_{i}")
+            ext = None
+            if r is not None and r.result.type == "succeeded":
+                ext = _batch_result_payload(r.result.message, CustodyExtraction)
+            if ext is None:
+                skipped += 1
+                continue
+            _normalize_extraction(ext)
+            partials.append(ext)
+        if not partials:
+            raise RuntimeError("No window produced a usable result.")
+        report = _combine_reports(partials)
+        report.expenses = [Expense(**e) for e in blob.get("expenses", [])]
+        if skipped:
+            report.limitations.append(
+                f"{skipped} of {n} time windows could not be analyzed and were skipped.")
+        result = {
+            "meta": blob["meta"],
+            "custody_breakdown": _custody_breakdown(report.childcare_events),
+            "report": report.model_dump(),
+            "transcript": blob.get("transcript", []),
+        }
+    else:
+        parts = []
+        for i in range(n):
+            r = by_id.get(f"msg_{i}")
+            if r is not None and r.result.type == "succeeded":
+                s = _batch_result_payload(r.result.message, ConversationSummary)
+                if s is not None:
+                    parts.append(s)
+        summary = _merge_summaries(parts) if parts else ConversationSummary()
+        result = {
+            "meta": blob["meta"],
+            "stats": blob["stats"],
+            "summary": summary.model_dump(),
+        }
+
+    _write_json_blob(_result_blob_path(uid, job_id), result)
+    _db().collection("jobs").document(job_id).update({
+        "status": "done", "resultPath": _result_blob_path(uid, job_id),
+        "progress": {"done": n, "total": n},
+    })
+    for path in job.get("cleanupPaths", []):
+        _delete_blob(path)
+    _delete_blob(job["blobPath"])
+    return result
+
+
 # --- HTTP plumbing ------------------------------------------------------------
 
 # The frontend is hosted on a different origin (Vercel), so cross-origin
@@ -2125,8 +2536,15 @@ def api(req: https_fn.Request) -> https_fn.Response:
                 return _json(handle_summarize(req))
             if path == "/custody-report" and req.method == "POST":
                 return _json(handle_custody(req))
+            # Async, batch-backed jobs (no window cap, survives a closed tab).
+            if path == "/jobs" and req.method == "POST":
+                return _json(handle_jobs_create(req, uid))
+            if path.startswith("/jobs/") and req.method == "GET":
+                return _json(handle_job_status(req, uid, path[len("/jobs/"):]))
             return _json({"detail": f"No route for {req.method} {path}."}, 404)
         finally:
+            # Sync report endpoints consume their uploads immediately; job
+            # uploads are deleted at assembly (auto-delete when the job ends).
             if path in ("/summarize", "/custody-report"):
                 _cleanup_storage()
     except ApiError as e:
