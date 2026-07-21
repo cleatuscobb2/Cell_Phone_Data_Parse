@@ -44,7 +44,25 @@ import {
 
 // Stay under the backend's ~32 MB per-request cap with headroom for
 // multipart framing.
-const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+// Cloud Run rejects any request body over 32 MB before it reaches the
+// function — and does so without CORS headers, so the browser only sees a
+// generic "Failed to fetch". Guard well under that so multipart overhead and
+// the odd large field can't push a just-under upload over the real limit.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+/** Turn a raw fetch/transport failure into guidance the user can act on. */
+function describeFetchError(err) {
+  const msg = err?.message || "";
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+    return (
+      "The upload didn't reach the server. This usually means the files are " +
+      "too large for a single request (the service caps each request at " +
+      "~32 MB). Export a narrower date range or split into smaller files. " +
+      "If the files are already small, check your connection and retry."
+    );
+  }
+  return msg || "Could not reach the analysis service.";
+}
 
 // Local dev defaults to the FastAPI proxy; production must set VITE_API_BASE
 // to the deployed Firebase function URL. The localhost fallback applies ONLY
@@ -256,6 +274,21 @@ export default function MessageSummarizer() {
       setContacts([]);
       return;
     }
+    // Guard the roster call too — it fires the moment files are added, so an
+    // over-limit upload would otherwise surface here as a bare "Failed to
+    // fetch" before the user ever reaches the Analyze button's size check.
+    const total = [...(texts || []), ...(emails || [])].reduce(
+      (s, f) => s + f.size, 0,
+    );
+    if (total > MAX_UPLOAD_BYTES) {
+      setError(
+        `These files total ${(total / 1048576).toFixed(0)} MB — over the ` +
+          `${(MAX_UPLOAD_BYTES / 1048576).toFixed(0)} MB per-request limit. ` +
+          `Export a narrower date range or split into smaller files.`,
+      );
+      setContacts([]);
+      return;
+    }
     setContactsLoading(true);
     try {
       const form = new FormData();
@@ -267,7 +300,7 @@ export default function MessageSummarizer() {
       if (!res.ok) throw new Error(data.detail || `Failed to read file (${res.status})`);
       setContacts(data.contacts);
     } catch (err) {
-      setError(err.message || "Could not read contacts from the file(s).");
+      setError(describeFetchError(err));
     } finally {
       setContactsLoading(false);
     }
@@ -420,7 +453,7 @@ export default function MessageSummarizer() {
       if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
       setResult(data);
     } catch (err) {
-      setError(err.message || "Could not reach the analysis service.");
+      setError(describeFetchError(err));
     } finally {
       setLoading(false);
     }
