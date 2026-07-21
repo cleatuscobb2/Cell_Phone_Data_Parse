@@ -667,6 +667,31 @@ export default function MessageSummarizer() {
           </div>
         </header>
 
+      {/* Round-trip entry point: regenerate a report from an edited evidence
+          workbook, without re-running (or paying for) the analysis. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+        <div className="text-sm text-emerald-900">
+          <p className="font-semibold">Already have an edited evidence workbook?</p>
+          <p className="text-emerald-700">
+            Fill in the “Unclear” fields in a downloaded Excel, then upload it
+            here to regenerate the report and PDF — no re-analysis, no cost.
+          </p>
+        </div>
+        <label className="cursor-pointer whitespace-nowrap rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-700">
+          Import edited workbook
+          <input
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              importWorkbook(f);
+            }}
+          />
+        </label>
+      </div>
+
       {/* Deployment misconfiguration — surface it instead of letting every
           request die with an opaque "Failed to fetch". */}
       {!API_BASE && (
@@ -1050,31 +1075,6 @@ export default function MessageSummarizer() {
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
-
-        {/* Round-trip: re-import an edited evidence workbook to regenerate the
-            report/PDF without re-running the analysis. */}
-        <div className="mt-1 border-t border-slate-100 pt-3">
-          <label className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span>
-              Already downloaded the evidence workbook and filled in the
-              “Unclear” fields? Upload it to regenerate the report and PDF —
-              no re-analysis needed.
-            </span>
-            <span className="cursor-pointer whitespace-nowrap rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100">
-              Upload edited workbook (.xlsx)
-              <input
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = "";
-                  importWorkbook(f);
-                }}
-              />
-            </span>
-          </label>
-        </div>
       </div>
 
       {/* --- Processing animation (upload / sync run; the job card replaces
