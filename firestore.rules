@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// Custody/legal data: a signed-in user may only ever touch their OWN jobs.
+// The backend worker uses the Admin SDK, which bypasses these rules, so all
+// status/progress/result writes happen server-side — the client only creates
+// a job and watches it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /jobs/{jobId} {
+      // Read your own job (the UI subscribes to this for live progress).
+      allow read: if request.auth != null
+                  && resource.data.uid == request.auth.uid;
+
+      // Create a job you own, in the initial queued state. Everything after
+      // (processing/done/error, progress, result) is written by the backend.
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'queued';
+
+      // Clients never mutate a running job or delete it; the backend does.
+      allow update, delete: if false;
+    }
+  }
+}

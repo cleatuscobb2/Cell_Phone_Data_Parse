@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// A signed-in user may only read/write files under their own uid prefix.
+// Uploads are written by the client (resumable, no 32 MB request limit) and
+// deleted by the backend once the job finishes. Results are written only by
+// the backend (Admin SDK bypasses these rules) and read by their owner.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == uid;
+    }
+    match /results/{uid}/{allPaths=**} {
+      allow read: if request.auth != null
+                  && request.auth.uid == uid;
+      allow write: if false;
+    }
+  }
+}
