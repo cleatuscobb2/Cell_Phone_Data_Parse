@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
@@ -1403,9 +1404,13 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
 MAX_RECEIPTS = 20      # one vision call per request, capped for cost/latency
 MAX_EOBS = 12          # EOBs often have multiple service lines, so the
                        # cap is lower than for receipts
-MAX_CSV_ROWS = 200     # payment-app rows in one categorize call
-MAX_BANK_ROWS = 500    # bank/credit-card statements have many more rows;
-                       # the LLM filters most as non-child-related
+# CSV rows are processed in chunks (one LLM call each) and merged, so a whole
+# multi-year statement can be ingested. These are the per-call chunk sizes.
+PAYMENT_CHUNK_SIZE = int(os.getenv("PAYMENT_CHUNK_SIZE", "200"))
+BANK_CHUNK_SIZE = int(os.getenv("BANK_CHUNK_SIZE", "400"))
+# Sanity ceiling across ALL chunks of one CSV, so a runaway file still errors.
+MAX_CSV_TOTAL_ROWS = int(os.getenv("MAX_CSV_TOTAL_ROWS", "20000"))
+FINANCIAL_CHUNK_CONCURRENCY = int(os.getenv("FINANCIAL_CHUNK_CONCURRENCY", "4"))
 
 # Image media types Claude vision accepts directly.
 _IMAGE_MIME = {
@@ -1558,40 +1563,69 @@ def _parse_bank_csv(raw: bytes, filename: str, base_index: int) -> list[dict]:
     return rows
 
 
+def _extract_rows_chunked(
+    rows: list[dict],
+    card_lookup: dict[str, str],
+    case_context: list[str],
+    *,
+    prompt: str,
+    kind: str,
+    chunk_size: int,
+) -> list[Expense]:
+    """Categorize CSV rows into Expenses, chunking large files across several
+    LLM calls (run concurrently) and merging the results — so a whole
+    multi-year statement can be ingested instead of hitting a hard cap."""
+    if not rows:
+        return []
+    if len(rows) > MAX_CSV_TOTAL_ROWS:
+        raise HTTPException(
+            413,
+            f"That's {len(rows):,} {kind} rows — more than one report ingests "
+            f"({MAX_CSV_TOTAL_ROWS:,}). Split the file or upload a shorter date "
+            f"range; each range comes back as its own report.",
+        )
+
+    def one(chunk: list[dict]) -> list[Expense]:
+        user_content = (
+            "\n".join(case_context)
+            + "\n\nCard-lookup mapping (last-4 → parent): "
+            + (json.dumps(card_lookup) if card_lookup else "(none provided)")
+            + f"\n\nHere are {len(chunk)} {kind} transactions in JSON:\n\n"
+            + json.dumps(chunk, indent=2, default=str)
+        )
+        try:
+            parsed = _structured_extract(
+                ExpenseList,
+                system_text=prompt,
+                user_content=user_content,
+                max_tokens=8000,
+                use_thinking=False,
+            )
+        except anthropic.APIStatusError as e:
+            raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+        return list(parsed.expenses)
+
+    chunks = [rows[i:i + chunk_size] for i in range(0, len(rows), chunk_size)]
+    if len(chunks) == 1:
+        return one(chunks[0])
+    out: list[Expense] = []
+    with ThreadPoolExecutor(max_workers=FINANCIAL_CHUNK_CONCURRENCY) as pool:
+        for res in pool.map(one, chunks):
+            out.extend(res)
+    return out
+
+
 def _extract_bank_expenses(
     rows: list[dict],
     card_lookup: dict[str, str],
     case_context: list[str],
 ) -> list[Expense]:
-    """Single batched Claude call that filters bank/CC rows down to the
-    child-related transactions and categorizes them."""
-    if not rows:
-        return []
-    if len(rows) > MAX_BANK_ROWS:
-        raise HTTPException(
-            413,
-            f"Too many bank-statement rows ({len(rows)}). Trim to "
-            f"{MAX_BANK_ROWS} or fewer (or upload a shorter date range).",
-        )
-    user_content = (
-        "\n".join(case_context)
-        + "\n\nCard-lookup mapping (last-4 → parent): "
-        + (json.dumps(card_lookup) if card_lookup else "(none provided)")
-        + f"\n\nHere are {len(rows)} bank / credit-card transactions in JSON. "
-        + "DROP rows that aren't clearly child-related — most won't be.\n\n"
-        + json.dumps(rows, indent=2, default=str)
+    """Filter bank/CC rows down to the child-related transactions (chunked)."""
+    return _extract_rows_chunked(
+        rows, card_lookup, case_context,
+        prompt=BANK_CSV_PROMPT, kind="bank / credit-card",
+        chunk_size=BANK_CHUNK_SIZE,
     )
-    try:
-        parsed = _structured_extract(
-            ExpenseList,
-            system_text=BANK_CSV_PROMPT,
-            user_content=user_content,
-            max_tokens=8000,
-            use_thinking=False,
-        )
-    except anthropic.APIStatusError as e:
-        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    return list(parsed.expenses)
 
 
 def _extract_receipts(
@@ -1728,32 +1762,12 @@ def _extract_payment_expenses(
     card_lookup: dict[str, str],
     case_context: list[str],
 ) -> list[Expense]:
-    """Single batched Claude call that categorizes payment-app rows."""
-    if not rows:
-        return []
-    if len(rows) > MAX_CSV_ROWS:
-        raise HTTPException(
-            413,
-            f"Too many payment-app rows ({len(rows)}). Trim to {MAX_CSV_ROWS} or fewer.",
-        )
-    user_content = (
-        "\n".join(case_context)
-        + "\n\nCard-lookup mapping (last-4 → parent): "
-        + (json.dumps(card_lookup) if card_lookup else "(none provided)")
-        + f"\n\nHere are {len(rows)} payment-app transactions in JSON:\n\n"
-        + json.dumps(rows, indent=2, default=str)
+    """Categorize payment-app rows into Expenses (chunked for large files)."""
+    return _extract_rows_chunked(
+        rows, card_lookup, case_context,
+        prompt=PAYMENT_CSV_PROMPT, kind="payment-app",
+        chunk_size=PAYMENT_CHUNK_SIZE,
     )
-    try:
-        parsed = _structured_extract(
-            ExpenseList,
-            system_text=PAYMENT_CSV_PROMPT,
-            user_content=user_content,
-            max_tokens=8000,
-            use_thinking=False,
-        )
-    except anthropic.APIStatusError as e:
-        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
-    return list(parsed.expenses)
 
 
 @app.post("/custody-report")

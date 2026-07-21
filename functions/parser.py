@@ -287,13 +287,47 @@ def compute_stats(messages: list[Message]) -> dict:
     }
 
 
+# Senders that are almost never a real person you correspond with — automated
+# no-reply/notification addresses and common transactional brands. Used to
+# flag conversations as non-person so the contact picker can show people only,
+# even when message-direction (from_me) isn't available to prove two-way.
+_NON_PERSON_RE = re.compile(
+    r"no[-_.\s]?reply|do[-_.\s]?not[-_.\s]?reply|noreply|donotreply|newsletter|"
+    r"notification|notice|mailer|postmaster|automated|auto[-_.\s]?confirm|"
+    r"\breceipts?\b|\bbilling\b|\bstatement\b|\balert\b|\bupdates?\b|"
+    r"(support|info|team|hello|help|sales|contact|orders?|service|account)@|"
+    # common transactional / brand senders
+    r"amazon|paypal|venmo|zelle|cash ?app|square|stripe|klarna|afterpay|"
+    r"uber|lyft|doordash|grubhub|instacart|spotify|netflix|hulu|disney|youtube|"
+    r"google|apple|microsoft|facebook|meta|instagram|twitter|\bx\.com\b|linkedin|"
+    r"tiktok|snapchat|pinterest|reddit|nextdoor|"
+    r"chase|wells ?fargo|bank ?of ?america|capital ?one|\bciti\b|discover|"
+    r"american ?express|\bamex\b|usaa|navy ?federal|synchrony|"
+    r"verizon|at&?t|t-?mobile|comcast|xfinity|spectrum|cox|"
+    r"walmart|target|costco|kroger|ebay|etsy|best ?buy|home ?depot|lowe'?s|"
+    r"usps|fedex|\bups\b|dhl|delivery|shipment|tracking|"
+    r"linkedin|indeed|glassdoor|ziprecruiter|"
+    r"groupon|yelp|expedia|booking|airbnb|ticketmaster|eventbrite",
+    re.I,
+)
+
+
+def _looks_automated(name: str) -> bool:
+    return bool(_NON_PERSON_RE.search(name or ""))
+
+
 def list_conversations(messages: list[Message]) -> list[dict]:
     """Roster of conversations for the contact selector — name, message
     count, and date span — ordered by volume.
 
-    `two_way` marks conversations with traffic in BOTH directions — the
-    reliable signature of an actual person. Newsletters, receipts, and
-    transactional email are one-way, so the UI can default to people only.
+    Two signals let the UI show people only:
+      - `two_way`: traffic in BOTH directions (the reliable signature of a
+        real correspondent) — but it needs message-direction, which emails
+        only have when the user supplied their own address.
+      - `looks_automated`: the conversation name matches a no-reply /
+        notification / transactional-brand pattern. This works with no
+        direction info, so the picker can hide newsletters and receipts even
+        when two_way can't be computed.
     """
     by_convo: dict[str, list[Message]] = defaultdict(list)
     for m in messages:
@@ -306,6 +340,7 @@ def list_conversations(messages: list[Message]) -> list[dict]:
             "last_date": msgs[-1].timestamp.strftime("%Y-%m-%d"),
             "two_way": any(m.from_me for m in msgs)
             and any(not m.from_me for m in msgs),
+            "looks_automated": _looks_automated(name),
         }
         for name, msgs in by_convo.items()
     ]

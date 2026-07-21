@@ -434,15 +434,18 @@ export default function MessageSummarizer() {
   // with a registered intake (currently West Virginia) is selected.
   const stateIntake = getStateIntake(caseState);
 
-  // Roster shown in the conversation picker. "People" = two-way threads;
-  // falls back to everything when direction data is absent (filter would be
-  // empty), and always keeps already-selected names visible.
-  const peopleContacts = contacts.filter((c) => c.two_way);
+  // Roster shown in the conversation picker. "People" = a real correspondent:
+  // a two-way thread, OR a non-automated sender (so newsletters, receipts, and
+  // transactional brands are hidden even when message-direction is missing —
+  // e.g. emails where the user didn't enter their own address). Falls back to
+  // everything if that would be empty, and always keeps selected names visible.
+  const isPerson = (c) => c.two_way || !c.looks_automated;
+  const peopleContacts = contacts.filter(isPerson);
   const visibleContacts =
     !peopleOnly || peopleContacts.length === 0
       ? contacts
       : contacts.filter(
-          (c) => c.two_way || selectedContacts.includes(c.name),
+          (c) => isPerson(c) || selectedContacts.includes(c.name),
         );
 
   return (
@@ -699,7 +702,7 @@ export default function MessageSummarizer() {
             {contacts.length > 0 && (
               <div className="mt-1 flex gap-1 self-start rounded-full bg-slate-100 p-0.5 font-normal">
                 {[
-                  [true, `People (${contacts.filter((c) => c.two_way).length})`],
+                  [true, `People (${peopleContacts.length})`],
                   [false, `All senders (${contacts.length})`],
                 ].map(([val, label]) => (
                   <button
