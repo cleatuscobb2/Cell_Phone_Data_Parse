@@ -649,6 +649,24 @@ export function buildCustodyWorkbook(data) {
     })),
   );
 
+  // Hidden round-trip payload — the case metadata + narrative that the visible
+  // evidence sheets don't carry (jurisdiction, intake answers, overview…). On
+  // re-import the edited evidence sheets are layered over this, so the report
+  // regenerates without re-running the analysis. Chunked because an Excel cell
+  // caps at ~32k characters.
+  const source = JSON.stringify({
+    meta,
+    overview: report.overview || "",
+    breakdown_basis: report.breakdown_basis || "",
+    sentiment_overview: report.sentiment_overview || "",
+    limitations: report.limitations || [],
+  });
+  const src = wb.addWorksheet("_source", { state: "veryHidden" });
+  src.getColumn(1).width = 120;
+  for (let i = 0; i < source.length; i += 30000) {
+    src.addRow([source.slice(i, i + 30000)]);
+  }
+
   return wb;
 }
 

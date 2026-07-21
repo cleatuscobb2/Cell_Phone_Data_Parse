@@ -34,6 +34,7 @@ import CustodyIntake from "./CustodyIntake.jsx";
 import CardLookup from "./CardLookup.jsx";
 import FinancialUpload from "./FinancialUpload.jsx";
 import { getStateIntake } from "./stateIntake.js";
+import { parseCustodyWorkbook } from "./custodyWorkbookImport.js";
 import {
   getIdToken,
   storageEnabled,
@@ -606,6 +607,26 @@ export default function MessageSummarizer() {
     }
   }
 
+  // Re-import an edited custody-evidence workbook and regenerate the report
+  // from it (no analysis re-run). Lets the parent fill in "Unclear" fields and
+  // correct anything before producing the final PDF.
+  async function importWorkbook(file) {
+    if (!file) return;
+    setError("");
+    setResult(null);
+    setJob(null);
+    setLoading(true);
+    try {
+      const data = await parseCustodyWorkbook(file);
+      setMode("custody");
+      setResult(data);
+    } catch (err) {
+      setError(err?.message || "Could not read that workbook.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const summary = result?.summary;
   const meta = result?.meta;
   const isFocused = !!(meta && (meta.contact || meta.search_terms?.length));
@@ -1029,6 +1050,31 @@ export default function MessageSummarizer() {
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
+
+        {/* Round-trip: re-import an edited evidence workbook to regenerate the
+            report/PDF without re-running the analysis. */}
+        <div className="mt-1 border-t border-slate-100 pt-3">
+          <label className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>
+              Already downloaded the evidence workbook and filled in the
+              “Unclear” fields? Upload it to regenerate the report and PDF —
+              no re-analysis needed.
+            </span>
+            <span className="cursor-pointer whitespace-nowrap rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100">
+              Upload edited workbook (.xlsx)
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  importWorkbook(f);
+                }}
+              />
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* --- Processing animation (upload / sync run; the job card replaces

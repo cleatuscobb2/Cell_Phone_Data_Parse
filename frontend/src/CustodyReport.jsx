@@ -374,7 +374,14 @@ export default function CustodyReport({ data }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-slate-800">Custody Analysis Report</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-800">Custody Analysis Report</h2>
+          {data.edited && (
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+              Regenerated from your edited workbook
+            </span>
+          )}
+        </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex gap-2">
             <button
