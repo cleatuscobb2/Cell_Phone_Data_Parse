@@ -203,6 +203,9 @@ class ChildcareEvent(BaseModel):
 class MissedVisit(BaseModel):
     date: str = ""
     kind: str = "other"       # cancellation | no_show | reschedule_request | late | declined_time | other
+    # Which parent caused the miss — lets the report say who missed what
+    # rather than only that a visit was missed.
+    responsible_party: str = "unclear"   # mother | father | shared | unclear
     description: str = ""
     quote: str = ""
     sender: str = ""
@@ -285,6 +288,18 @@ class Expense(BaseModel):
     insurance_paid: float | None = None    # what the insurer covered
 
 
+class TonePeriod(BaseModel):
+    """One parent's communication tone for one period (a calendar year), with
+    a representative message — so the report can show tone by year and parent
+    and how it trends, instead of one run-on paragraph."""
+    period: str = ""          # a calendar year, e.g. "2024"
+    party: str = "unclear"    # mother | father
+    label: str = "neutral"    # positive | neutral | negative
+    summary: str = ""         # one short sentence
+    exemplar_quote: str = ""  # verbatim message that typifies the read
+    date: str = ""            # date of the exemplar
+
+
 class CustodyExtraction(BaseModel):
     """Output shape for the per-window LLM extraction. Includes everything
     Claude is asked to extract from messages — but NOT the financial
@@ -301,6 +316,7 @@ class CustodyExtraction(BaseModel):
     third_party_statements: list[ThirdPartyStatement] = []
     suggestions: list[Suggestion] = []
     sentiment_overview: str = ""
+    tone_by_period: list[TonePeriod] = []
     limitations: list[str] = []
 
 
@@ -399,8 +415,9 @@ and their attorney. Accuracy and traceability matter more than completeness.
 
 Produce:
 
-- overview: A neutral, factual 3-5 sentence summary of what the co-parenting \
-communications show.
+- overview: A tight, neutral 2-3 sentence summary — what the record shows and \
+the single most significant pattern in it. No preamble, no restating the \
+task, no hedging. Detail belongs in the structured fields below, not here.
 
 - childcare_events: Every instance where the messages show a child was in the \
 care of, spending time with, or being looked after by a specific parent. For \
@@ -408,11 +425,13 @@ each: date, which parent ("mother", "father", "shared", or "unclear"), a \
 short factual description, the verbatim quote, and the sender of the quoted \
 message.
 
-- missed_or_cancelled: Every instance where the OTHER parent cancelled, did \
-not show up for, asked to reschedule, arrived late for, or declined scheduled \
-or offered time with the children. For each: date, kind (cancellation, \
-no_show, reschedule_request, late, declined_time, other), description, \
-verbatim quote, sender.
+- missed_or_cancelled: Every instance where a parent cancelled, did not show \
+up for, asked to reschedule, arrived late for, or declined scheduled or \
+offered time with the children. For each: date, kind (cancellation, \
+no_show, reschedule_request, late, declined_time, other), responsible_party — \
+which parent caused the miss ("mother", "father", "shared", or "unclear"); use \
+"unclear" only when the messages genuinely do not say — description, verbatim \
+quote, sender.
 
 - communication_gaps: Notable stretches of time with no message from or about \
 the other parent regarding the children, which may indicate a lack of \
@@ -464,9 +483,18 @@ date in YYYY-MM-DD, or an empty string).
 - breakdown_basis: A short explanation of how the childcare_events were \
 identified and what makes the resulting count reliable or uncertain.
 
-- sentiment_overview: A factual description of the tone of the communications \
-specifically about arranging and discussing the children — note conflict, \
-cooperation, hostility, or non-responsiveness, grounded in the messages.
+- sentiment_overview: ONE or TWO sentences on the overall tone and how it \
+changed over the period. Keep it short — the detail goes in tone_by_period.
+
+- tone_by_period: The tone read broken out per calendar year AND per parent. \
+Emit one entry per (year, parent) pair that the transcript actually supports, \
+for both "mother" and "father". For each: period (the 4-digit year), party \
+("mother" or "father"), label ("positive", "neutral", or "negative"), summary \
+(ONE short sentence characterizing that parent's tone that year), \
+exemplar_quote (a verbatim message from that parent and year that typifies \
+the read), and date (the exemplar's date). Choose exemplars that are genuinely \
+representative, not the single worst message. This is what lets the report \
+show tone trending over time rather than one undifferentiated paragraph.
 
 - limitations: A candid list of caveats — what the transcript could NOT \
 establish, where attributions were uncertain, that counts are estimates \
@@ -1122,6 +1150,7 @@ _RESP_CATEGORIES = {
 _SUGGESTION_CATEGORIES = {
     "attachment", "key_statement", "evidence_to_gather", "follow_up", "other",
 }
+_TONE_LABELS = {"positive", "neutral", "negative"}
 
 
 def _bucket(value: str | None, allowed: set[str], fallback: str) -> str:
@@ -1132,6 +1161,30 @@ def _bucket(value: str | None, allowed: set[str], fallback: str) -> str:
     return v if v in allowed else fallback
 
 
+def _merge_tone(entries: list) -> list:
+    """Merge per-window tone reads into one entry per (year, parent).
+
+    Windows overlap years, so several passes can each report 2024/father. Keep
+    the first substantive read for a pair — preferring one that carries an
+    exemplar quote — and return them in chronological, mother-then-father
+    order so the report reads as a trend."""
+    best: dict = {}
+    for t in entries:
+        party = t.party if t.party in ("mother", "father") else "unclear"
+        period = str(t.period or "")[:4]
+        if not period:
+            continue
+        key = (period, party)
+        current = best.get(key)
+        if current is None or (not current.exemplar_quote and t.exemplar_quote):
+            best[key] = t
+    order = {"mother": 0, "father": 1, "unclear": 2}
+    return [
+        best[k]
+        for k in sorted(best, key=lambda k: (k[0], order.get(k[1], 9)))
+    ]
+
+
 def _normalize_extraction(report: CustodyExtraction) -> None:
     """Snap the model's free-form enum-shaped strings into canonical buckets
     in place, so downstream counts and charts always see expected values."""
@@ -1140,7 +1193,12 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         e.channel = _bucket(e.channel, _CHANNELS, "unclear")
     for m in report.missed_or_cancelled:
         m.kind = _bucket(m.kind, _MISSED_KINDS, "other")
+        m.responsible_party = _bucket(m.responsible_party, _PARTIES, "unclear")
         m.channel = _bucket(m.channel, _CHANNELS, "unclear")
+    for t in report.tone_by_period:
+        t.party = _bucket(t.party, _PARTIES, "unclear")
+        t.label = _bucket(t.label, _TONE_LABELS, "neutral")
+        t.period = str(t.period or "")[:4]
     for r in report.responsibility_events:
         r.category = _bucket(r.category, _RESP_CATEGORIES, "other")
         r.responsible_party = _bucket(r.responsible_party, _PARTIES, "unclear")
@@ -1306,6 +1364,7 @@ def _concat_extractions(parts: list[CustodyExtraction]) -> CustodyExtraction:
         third_party_statements=[t for p in parts for t in p.third_party_statements],
         suggestions=[s for p in parts for s in p.suggestions],
         sentiment_overview=" ".join(p.sentiment_overview for p in parts if p.sentiment_overview),
+        tone_by_period=_merge_tone([t for p in parts for t in p.tone_by_period]),
         limitations=[l for p in parts for l in p.limitations],
     )
 
@@ -1549,6 +1608,7 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
         responsibility_events=responsibility,
         third_party_statements=third_party,
         suggestions=suggestions,
+        tone_by_period=_merge_tone([t for p in partials for t in p.tone_by_period]),
         sentiment_overview=narrative.sentiment_overview,
         limitations=narrative.limitations,
     )
