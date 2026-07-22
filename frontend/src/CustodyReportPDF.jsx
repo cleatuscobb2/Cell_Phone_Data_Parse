@@ -727,7 +727,12 @@ function PdfTimelineYear({ model, plotW = PLOT_W }) {
   );
 }
 
-const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Source unclear" };
+const CHANNEL_LABEL = {
+  email: "Email",
+  text: "Text",
+  document: "Document",
+  unclear: "Source unclear",
+};
 
 function EvidenceItem({
   date,

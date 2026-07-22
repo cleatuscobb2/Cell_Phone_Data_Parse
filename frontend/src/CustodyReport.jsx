@@ -241,6 +241,7 @@ function ParentSplitLabel({ x, y, width, height, index, data }) {
 const SOURCE_TAG = {
   email: { label: "Email", className: "bg-violet-100 text-violet-700" },
   text: { label: "Text", className: "bg-sky-100 text-sky-700" },
+  document: { label: "Document", className: "bg-emerald-100 text-emerald-700" },
   unclear: { label: "Source unclear", className: "bg-slate-100 text-slate-500" },
 };
 

@@ -19,7 +19,12 @@ import { RESPONSIBILITY_CATEGORIES } from "./chartData.js";
 const PARTY_MAP = {
   mother: "mother", father: "father", shared: "shared", unclear: "unclear",
 };
-const CHANNEL_MAP = { email: "email", text: "text", unclear: "unclear" };
+const CHANNEL_MAP = {
+  email: "email",
+  text: "text",
+  document: "document",
+  unclear: "unclear",
+};
 const MISSED_MAP = {
   cancellation: "cancellation", "no-show": "no_show", "no show": "no_show",
   "reschedule request": "reschedule_request", late: "late",

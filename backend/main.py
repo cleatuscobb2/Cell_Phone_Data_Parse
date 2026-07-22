@@ -300,6 +300,18 @@ class TonePeriod(BaseModel):
     date: str = ""            # date of the exemplar
 
 
+class DocumentExtraction(BaseModel):
+    """Evidence read out of supporting documents — school/daycare sign-in and
+    sign-out sheets, attendance logs, permission slips, report cards, medical
+    visit records. These corroborate (or contradict) what the messages show,
+    so the entries merge into the same lists as the message-derived ones and
+    carry channel="document" for provenance."""
+    childcare_events: list[ChildcareEvent] = []
+    responsibility_events: list[ResponsibilityEvent] = []
+    third_party_statements: list[ThirdPartyStatement] = []
+    limitations: list[str] = []
+
+
 class CustodyExtraction(BaseModel):
     """Output shape for the per-window LLM extraction. Includes everything
     Claude is asked to extract from messages — but NOT the financial
@@ -563,6 +575,28 @@ the other parent; otherwise "unclear"
 Skip lines that are for an adult only (not one of the children) or that \
 have zero patient responsibility AND zero billed (informational only). \
 Be conservative: omit anything you cannot ground in the document."""
+
+
+DOCUMENTS_PROMPT = """You are reading supporting documents a parent uploaded to corroborate their record of caring for their children.
+
+Typical documents: school or daycare sign-in / sign-out sheets, attendance logs, late-pickup logs, permission slips and field-trip forms, report cards and progress reports, parent-teacher conference notes, medical or dental visit records, activity and camp rosters, court or agency letters.
+
+The user message provides the case context (the user's role, the other parent's name, the children's names) followed by one or more documents, in order, each labeled with its 0-based index and filename.
+
+Read every legible dated entry and turn it into evidence:
+
+- childcare_events: an entry showing a specific parent had the child — a sign-out signed by a parent, a pickup or drop-off line, an attendance row naming who collected the child. For each: date (YYYY-MM-DD), parent ("mother", "father", "shared", or "unclear"), a short factual description naming the document, the verbatim text you read (a signature line, a time, a printed name), and sender = the document's filename. Set channel to "document".
+
+- responsibility_events: an entry showing a parent handled a parenting responsibility — signing a permission slip, attending a conference, completing enrolment or medical paperwork. For each: date, category (education, medical_dental_eye, religious, child_care, childrens_employment, motor_vehicle, activities, other), a short subcategory, responsible_party, description, the verbatim text, sender = the filename, channel = "document".
+
+- third_party_statements: an observation recorded by a non-parent — a teacher's comment, a nurse's note, a caregiver's remark. For each: date, source (who wrote it, e.g. "Ms. Alvarez, 2nd grade teacher"), description, the verbatim text, channel = "document".
+
+Rules:
+- Only report what the document actually shows. Do NOT infer a parent from a surname alone when both parents share it — use "unclear".
+- If a date is partial or missing, use what is printed; if there is no date at all, skip the entry.
+- Ignore blank rows, other families' entries, and boilerplate.
+- If a document is illegible, unreadable, or not case-relevant, skip it and add one short note to limitations saying which filename and why.
+- Quote verbatim. Never invent a name, date, or signature."""
 
 
 RECEIPTS_PROMPT = """You are extracting child-related expenses from receipts, \
@@ -1138,7 +1172,7 @@ def _split_into_chunks(messages: list, max_chars: int) -> list[list]:
 # Allowed values for the formerly-Literal enums, used to normalize the
 # model's free-form `str` output back into canonical buckets.
 _PARTIES = {"mother", "father", "shared", "unclear"}
-_CHANNELS = {"text", "email", "unclear"}
+_CHANNELS = {"text", "email", "document", "unclear"}
 _MISSED_KINDS = {
     "cancellation", "no_show", "reschedule_request",
     "late", "declined_time", "other",
@@ -1619,6 +1653,7 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
 MAX_RECEIPTS = 20      # one vision call per request, capped for cost/latency
 MAX_EOBS = 12          # EOBs often have multiple service lines, so the
                        # cap is lower than for receipts
+MAX_DOCUMENTS = 20     # supporting documents per batched vision call
 # CSV rows are processed in chunks (one LLM call each) and merged, so a whole
 # multi-year statement can be ingested. These are the per-call chunk sizes.
 PAYMENT_CHUNK_SIZE = int(os.getenv("PAYMENT_CHUNK_SIZE", "200"))
@@ -1853,6 +1888,105 @@ def _extract_bank_expenses(
     )
 
 
+def _merge_document_evidence(report, docs) -> None:
+    """Fold document-derived evidence into the report's existing lists and keep
+    each list in date order, so corroborating records sit alongside the
+    message-derived entries rather than in a separate silo."""
+    if docs is None:
+        return
+    if docs.childcare_events:
+        report.childcare_events = sorted(
+            list(report.childcare_events) + list(docs.childcare_events),
+            key=lambda e: e.date or "",
+        )
+    if docs.responsibility_events:
+        report.responsibility_events = sorted(
+            list(report.responsibility_events) + list(docs.responsibility_events),
+            key=lambda e: e.date or "",
+        )
+    if docs.third_party_statements:
+        report.third_party_statements = sorted(
+            list(report.third_party_statements) + list(docs.third_party_statements),
+            key=lambda e: e.date or "",
+        )
+    for note in docs.limitations:
+        if note not in report.limitations:
+            report.limitations.append(note)
+
+
+def _extract_documents(
+    files: list[tuple[bytes, str]],
+    case_context: list[str],
+) -> DocumentExtraction:
+    """Read supporting documents (sign-in sheets, school records, forms) into
+    dated, attributed evidence. One batched vision call, like receipts."""
+    if not files:
+        return DocumentExtraction()
+    if len(files) > MAX_DOCUMENTS:
+        raise HTTPException(
+            413,
+            f"Too many supporting documents in one request ({len(files)}). "
+            f"Upload at most {MAX_DOCUMENTS} at a time.",
+        )
+    header = "\n".join(case_context) + (
+        f"\n\nSupporting documents follow ({len(files)} document"
+        + ("s" if len(files) != 1 else "")
+        + "), each labeled with its 0-based index and filename:"
+    )
+    content: list[dict] = [{"type": "text", "text": header}]
+    for i, (raw, name) in enumerate(files):
+        ext = "." + (name.rsplit(".", 1)[-1].lower() if "." in name else "")
+        mime = _IMAGE_MIME.get(ext)
+        b64 = base64.b64encode(raw).decode("ascii")
+        if mime is not None:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": b64},
+            })
+        elif ext in _PDF_EXTS:
+            content.append({"type": "text", "text": f"\n[source_index {i}] {name}"})
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": b64,
+                },
+            })
+        else:
+            content.append({
+                "type": "text",
+                "text": f"\n[source_index {i}] {name} — unsupported format, skipped.",
+            })
+    try:
+        parsed = _structured_extract(
+            DocumentExtraction,
+            system_text=DOCUMENTS_PROMPT,
+            user_content=content,
+            max_tokens=16000,
+            use_thinking=False,
+        )
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
+    except HTTPException as e:
+        if e.status_code != 413:
+            raise
+        raise HTTPException(
+            413,
+            f"Too much detail across these {len(files)} documents to extract in "
+            f"one pass. Upload fewer documents at a time.",
+        )
+    # Everything here came from a document, whatever the model labelled it.
+    for e in parsed.childcare_events:
+        e.channel = "document"
+    for r in parsed.responsibility_events:
+        r.channel = "document"
+    for t in parsed.third_party_statements:
+        t.channel = "document"
+    return parsed
+
+
 def _extract_receipts(
     files: list[tuple[bytes, str]],
     card_lookup: dict[str, str],
@@ -2019,6 +2153,7 @@ async def custody_report(
     eob_files: list[UploadFile] | None = File(None),
     payment_files: list[UploadFile] | None = File(None),
     bank_files: list[UploadFile] | None = File(None),
+    document_files: list[UploadFile] | None = File(None),
     user_email: str | None = Form(None),
     other_parent: str = Form(...),
     user_role: str = Form("mother"),
@@ -2179,6 +2314,15 @@ async def custody_report(
             + list(payment_expenses)
             + list(bank_expenses)
         )
+
+    # Supporting documents (sign-in sheets, school records, forms) become
+    # dated evidence merged into the same lists as the message-derived items.
+    doc_payload = [
+        (await df.read(), df.filename or "") for df in (document_files or [])
+    ]
+    if doc_payload:
+        docs = await asyncio.to_thread(_extract_documents, doc_payload, context)
+        _merge_document_evidence(report, docs)
 
     return {
         "meta": {

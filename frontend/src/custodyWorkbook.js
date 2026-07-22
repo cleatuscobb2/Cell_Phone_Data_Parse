@@ -46,7 +46,12 @@ import {
 } from "./financial.js";
 import { buildSca106Worksheet } from "./scaFc106.js";
 
-const CHANNEL_LABEL = { email: "Email", text: "Text", unclear: "Unclear" };
+const CHANNEL_LABEL = {
+  email: "Email",
+  text: "Text",
+  document: "Document",
+  unclear: "Unclear",
+};
 const MISSED_KIND_LABEL = {
   cancellation: "Cancellation",
   no_show: "No-show",

@@ -57,6 +57,11 @@ import {
 // the odd large field can't push a just-under upload over the real limit.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+// Supporting documents are read by Claude vision, so the same set the
+// receipt zone accepts: images plus PDF.
+const DOCUMENT_ACCEPT =
+  "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf";
+
 // When Storage is enabled the request body carries only a tiny manifest, so
 // the 32 MB request wall no longer applies. Files still get downloaded and
 // processed in a 1 GB function, so keep a generous ceiling on the (already
@@ -300,6 +305,7 @@ export default function MessageSummarizer() {
   const [eobFiles, setEobFiles] = useState([]);
   const [paymentCsvFiles, setPaymentCsvFiles] = useState([]);
   const [bankCsvFiles, setBankCsvFiles] = useState([]);
+  const [documentFiles, setDocumentFiles] = useState([]);
   const [cardLookup, setCardLookup] = useState({});
   const [monthlyGrossIncome, setMonthlyGrossIncome] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -477,6 +483,7 @@ export default function MessageSummarizer() {
     return [
       ...textFiles, ...emailFiles, ...receiptFiles,
       ...eobFiles, ...paymentCsvFiles, ...bankCsvFiles,
+      ...documentFiles,
     ];
   }
 
@@ -546,6 +553,7 @@ export default function MessageSummarizer() {
       fileCategories.eob_files = eobFiles;
       fileCategories.payment_files = paymentCsvFiles;
       fileCategories.bank_files = bankCsvFiles;
+      fileCategories.document_files = documentFiles;
       if (Object.keys(cardLookup).length > 0) {
         form.append("card_lookup", JSON.stringify(cardLookup));
       }
@@ -888,6 +896,28 @@ export default function MessageSummarizer() {
                 Card lookup (optional)
               </p>
               <CardLookup lookup={cardLookup} onChange={setCardLookup} />
+            </div>
+            {/* Supporting documentation — corroborating records rather than
+                money. These become dated childcare, responsibility and
+                third-party entries alongside the message evidence. */}
+            <div className="mt-3 border-t border-slate-200 pt-2">
+              <p className="text-xs font-medium text-slate-600">
+                Supporting documentation (optional)
+              </p>
+              <p className="mb-2 text-xs text-slate-400">
+                Sign-in / sign-out sheets, attendance and late-pickup logs,
+                permission slips, report cards, conference notes, medical visit
+                records. Each dated entry becomes evidence in the report —
+                marked as coming from a document, so it corroborates what the
+                messages show.
+              </p>
+              <DropZone
+                label="Supporting documents"
+                hint="Sign-in sheets, school & medical records, forms"
+                accept={DOCUMENT_ACCEPT}
+                files={documentFiles}
+                onChange={setDocumentFiles}
+              />
             </div>
             {stateIntake && (
               <div className="mt-3 border-t border-slate-200 pt-2">
