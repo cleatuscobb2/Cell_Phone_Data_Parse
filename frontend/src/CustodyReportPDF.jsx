@@ -896,6 +896,84 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   // Single-series spec for the per-category sub-category charts.
   const SUB_SERIES = [{ key: "amount", color: finPayerColor, label: "Paid" }];
 
+  // At-a-glance findings, computed from the evidence already in the report so
+  // a reader gets the shape of the case before wading into the detail.
+  const findings = [];
+  const cbAttributed =
+    (cb.instances_with_mother || 0) +
+    (cb.instances_with_father || 0) +
+    (cb.instances_shared || 0);
+  if (cbAttributed > 0) {
+    const m = cb.estimated_pct_mother ?? 0;
+    const f = cb.estimated_pct_father ?? 0;
+    findings.push(
+      `Childcare splits ${m}% / ${f}% (${meta.user_role} / father) across ` +
+        `${cbAttributed} attributable instance${cbAttributed === 1 ? "" : "s"}` +
+        (cb.instances_unclear
+          ? `; ${cb.instances_unclear} could not be attributed.`
+          : "."),
+    );
+  }
+  if (missed.total > 0) {
+    const worstYear = [...missed.byYear].sort((a, b) => b.total - a.total)[0];
+    findings.push(
+      `${missed.total} missed or cancelled visit${missed.total === 1 ? "" : "s"}` +
+        (missed.hasParty
+          ? ` — ${missed.byParty.father} attributed to father, ` +
+            `${missed.byParty.mother} to ${meta.user_role}`
+          : "") +
+        (worstYear
+          ? `; ${worstYear.year} was the heaviest year (${worstYear.total}).`
+          : "."),
+    );
+  }
+  if (responsibilities.length > 0) {
+    const mTot = responsibilities.reduce((s, r) => s + r.mother, 0);
+    const fTot = responsibilities.reduce((s, r) => s + r.father, 0);
+    findings.push(
+      `Of ${report.responsibility_events.length} parenting-responsibility ` +
+        `entries, ${meta.user_role} handled ${mTot} and father ${fTot}; the ` +
+        `heaviest category is ${responsibilities[0].full}.`,
+    );
+  }
+  if (respThemes.length > 0) {
+    const lopsided = respThemes
+      .map((t) => ({ ...t, gap: Math.abs(t.mother - t.father) }))
+      .filter((t) => t.gap > 0)
+      .sort((a, b) => b.gap - a.gap)
+      .slice(0, 3);
+    if (lopsided.length > 0) {
+      findings.push(
+        "Most one-sided themes: " +
+          lopsided
+            .map(
+              (t) =>
+                `${t.label} (${meta.user_role} ${t.mother} vs father ${t.father})`,
+            )
+            .join("; ") +
+          ".",
+      );
+    }
+  }
+  if (fin.hasExpenses) {
+    findings.push(
+      `${usd(finTotalShown)} in documented child-related expenses across ` +
+        `${expenses.length} document${expenses.length === 1 ? "" : "s"}` +
+        (finSolePayer ? `, all paid by ${finPayerLabel}` : "") +
+        ".",
+    );
+  }
+  if ((report.communication_gaps || []).length > 0) {
+    const longest = [...report.communication_gaps].sort(
+      (a, b) => (b.days || 0) - (a.days || 0),
+    )[0];
+    findings.push(
+      `${report.communication_gaps.length} notable communication gap` +
+        `${report.communication_gaps.length === 1 ? "" : "s"}; the longest ran ` +
+        `${longest.days} days (${longest.start_date} to ${longest.end_date}).`,
+    );
+  }
+
   // WV SCA-FC-106 worksheet — only when WV is the filing state.
   const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
   const sca106 = isWV
@@ -985,6 +1063,25 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
 
         <Text style={styles.h2}>Overview</Text>
         <Text style={styles.para}>{report.overview}</Text>
+
+        {/* The shape of the case up front, computed from the evidence below,
+            so the reader gets the picture without reading the whole report. */}
+        {findings.length > 0 ? (
+          <View wrap={false}>
+            <Text style={styles.h2}>At a Glance</Text>
+            <Text style={styles.caption}>
+              Computed directly from the evidence in this report — every figure
+              below is supported by the detail sections and the evidence
+              workbook.
+            </Text>
+            {findings.map((f, i) => (
+              <View key={i} style={styles.bullet}>
+                <Text style={styles.bulletDot}>•</Text>
+                <Text style={{ flex: 1 }}>{f}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {requiredFormList.length > 0 ? (
           <View>
