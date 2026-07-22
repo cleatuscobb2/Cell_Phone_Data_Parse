@@ -28,6 +28,7 @@
  */
 
 import ExcelJS from "exceljs";
+import { medicalAppointments } from "./reportInsights.js";
 import {
   RESPONSIBILITY_CATEGORIES,
   RESPONSIBILITY_LABELS,
@@ -228,6 +229,24 @@ function buildPivotSheets(wb, report, expenses, hasExpenses) {
     colOrder: PARTY_ORDER,
   });
 
+  const medRows = medicalAppointments(report);
+  if (medRows.rows.length > 0) {
+    const roleTriples = [];
+    for (const a of medRows.rows) {
+      const roles = medRows.derived
+        ? [["Handled by", a.handled_by]]
+        : [["Planned", a.planned_by], ["Scheduled", a.scheduled_by], ["Took", a.taken_by]];
+      for (const [label, party] of [...roles, ["Paid", a.paid_by]]) {
+        if (party && party !== "unclear") {
+          roleTriples.push({ row: label, col: partyLabel(party), val: 1 });
+        }
+      }
+    }
+    pivotSheet(wb, "Pivot - Medical Roles", "Role", roleTriples, {
+      colOrder: PARTY_ORDER,
+    });
+  }
+
   pivotSheet(
     wb,
     "Pivot - Childcare by Month",
@@ -348,6 +367,20 @@ const EXPENSE_COLS = [
   // EOB-only columns — blank for receipts/CSVs.
   { header: "Billed (EOB)", key: "billed_amount", width: 14 },
   { header: "Insurance paid (EOB)", key: "insurance_paid", width: 18 },
+];
+
+const MEDICAL_COLS = [
+  { header: "Date", key: "date", width: 13 },
+  { header: "Child", key: "child", width: 16 },
+  { header: "Type of medical", key: "type", width: 26 },
+  { header: "Name of medical", key: "provider", width: 28 },
+  { header: "Planned by", key: "planned", width: 13 },
+  { header: "Scheduled by", key: "scheduled", width: 13 },
+  { header: "Taken by", key: "taken", width: 13 },
+  { header: "Paid by", key: "paid", width: 13 },
+  { header: "Amount (USD)", key: "amount", width: 14 },
+  { header: "Description", key: "description", width: 46 },
+  { header: "Verbatim quote", key: "quote", width: 56 },
 ];
 
 const FIN_FINDING_COLS = [
@@ -635,6 +668,32 @@ export function buildCustodyWorkbook(data) {
       quote: t.quote || "",
     })),
   );
+
+  // Medical appointment register — role-level attribution where captured.
+  const med = medicalAppointments(report);
+  if (med.rows.length > 0) {
+    dataSheet(
+      wb,
+      "Medical Appointments",
+      MEDICAL_COLS,
+      med.rows.map((a) => ({
+        date: a.date || "",
+        child: a.child || "",
+        type: a.appointment_type || "",
+        provider: a.provider || "",
+        // A derived register only knows the one party each entry names, so it
+        // goes under "Planned by" and the other roles stay blank rather than
+        // repeating an attribution the source never made.
+        planned: partyLabel(med.derived ? a.handled_by : a.planned_by),
+        scheduled: med.derived ? "" : partyLabel(a.scheduled_by),
+        taken: med.derived ? "" : partyLabel(a.taken_by),
+        paid: partyLabel(a.paid_by),
+        amount: a.amount != null ? Number(a.amount) : "",
+        description: a.description || "",
+        quote: a.quote || "",
+      })),
+    );
+  }
 
   dataSheet(
     wb,

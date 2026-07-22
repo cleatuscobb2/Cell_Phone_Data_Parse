@@ -285,6 +285,25 @@ class TonePeriod(BaseModel):
     date: str = ""            # date of the exemplar
 
 
+class MedicalAppointment(BaseModel):
+    """One medical/dental/vision appointment, with each caregiving role
+    attributed separately. `responsible_party` on a ResponsibilityEvent
+    collapses these into one field; custody arguments usually turn on the
+    difference between who booked it and who actually showed up."""
+    date: str = ""
+    child: str = ""              # which child the appointment was for
+    appointment_type: str = ""   # dental, vision, pediatric, therapy, ortho…
+    provider: str = ""           # practice or clinician name
+    planned_by: str = "unclear"      # mother | father | shared | unclear
+    scheduled_by: str = "unclear"    # who booked it
+    taken_by: str = "unclear"        # who physically took the child
+    paid_by: str = "unclear"
+    amount: float | None = None
+    description: str = ""
+    quote: str = ""
+    channel: str = "unclear"
+
+
 class DocumentExtraction(BaseModel):
     """Evidence read out of supporting documents — school/daycare sign-in and
     sign-out sheets, attendance logs, permission slips, report cards, medical
@@ -294,6 +313,7 @@ class DocumentExtraction(BaseModel):
     childcare_events: list[ChildcareEvent] = []
     responsibility_events: list[ResponsibilityEvent] = []
     third_party_statements: list[ThirdPartyStatement] = []
+    medical_appointments: list[MedicalAppointment] = []
     limitations: list[str] = []
 
 
@@ -308,6 +328,7 @@ class CustodyExtraction(BaseModel):
     communication_gaps: list[CommunicationGap] = []
     responsibility_events: list[ResponsibilityEvent] = []
     third_party_statements: list[ThirdPartyStatement] = []
+    medical_appointments: list[MedicalAppointment] = []
     suggestions: list[Suggestion] = []
     sentiment_overview: str = ""
     tone_by_period: list[TonePeriod] = []
@@ -454,6 +475,8 @@ clothes", "Who paid", "Scheduling & paperwork", "Sports — game", "Camp", \
 ("mother", "father", "shared", or "unclear"), description, verbatim quote, \
 and sender.
 
+- medical_appointments: A register of every medical, dental, vision, orthodontic, therapy or counselling appointment the messages reveal. Custody arguments turn on WHO DID WHICH PART, so attribute each role separately and independently — the same parent may hold all four, or different parents may hold each. For every appointment give: date (the appointment itself, not the message), child (which child it was for), appointment_type (e.g. "dental cleaning", "annual physical", "orthodontist", "speech therapy"), provider (the practice or clinician named, e.g. "Dr. Lee"), planned_by (who first raised or decided the child needed it), scheduled_by (who actually booked it), taken_by (who physically took the child), paid_by (who paid), amount if a figure is stated, a short description, and the verbatim quote. Use "unclear" for any role the messages do not establish — do NOT assume the parent who booked it also took the child. Include an appointment even when only some roles are known.
+
 - third_party_statements: Messages from people OTHER than the two parents \
 that describe or corroborate either parent's involvement with the children \
 (for example a relative, teacher, or friend commenting on caregiving). For \
@@ -572,6 +595,8 @@ Read every legible dated entry and turn it into evidence:
 - responsibility_events: an entry showing a parent handled a parenting responsibility — signing a permission slip, attending a conference, completing enrolment or medical paperwork. For each: date, category (education, medical_dental_eye, religious, child_care, childrens_employment, motor_vehicle, activities, other), a short subcategory, responsible_party, description, the verbatim text, sender = the filename, channel = "document".
 
 - third_party_statements: an observation recorded by a non-parent — a teacher's comment, a nurse's note, a caregiver's remark. For each: date, source (who wrote it, e.g. "Ms. Alvarez, 2nd grade teacher"), description, the verbatim text, channel = "document".
+
+- medical_appointments: for a medical, dental, vision or therapy visit record — date, child, appointment_type, provider, and whichever of planned_by / scheduled_by / taken_by / paid_by the document actually shows (a signature line naming who brought the child sets taken_by). Use "unclear" for roles it does not show. Set channel to "document".
 
 Rules:
 - Only report what the document actually shows. Do NOT infer a parent from a surname alone when both parents share it — use "unclear".
@@ -1264,6 +1289,12 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         r.channel = _bucket(r.channel, _CHANNELS, "unclear")
     for t in report.third_party_statements:
         t.channel = _bucket(t.channel, _CHANNELS, "unclear")
+    for a in report.medical_appointments:
+        a.planned_by = _bucket(a.planned_by, _PARTIES, "unclear")
+        a.scheduled_by = _bucket(a.scheduled_by, _PARTIES, "unclear")
+        a.taken_by = _bucket(a.taken_by, _PARTIES, "unclear")
+        a.paid_by = _bucket(a.paid_by, _PARTIES, "unclear")
+        a.channel = _bucket(a.channel, _CHANNELS, "unclear")
     for s in report.suggestions:
         s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
 
@@ -1414,6 +1445,7 @@ def _concat_extractions(parts: list[CustodyExtraction]) -> CustodyExtraction:
         communication_gaps=[g for p in parts for g in p.communication_gaps],
         responsibility_events=[r for p in parts for r in p.responsibility_events],
         third_party_statements=[t for p in parts for t in p.third_party_statements],
+        medical_appointments=[a for p in parts for a in p.medical_appointments],
         suggestions=[s for p in parts for s in p.suggestions],
         sentiment_overview=" ".join(p.sentiment_overview for p in parts if p.sentiment_overview),
         tone_by_period=_merge_tone([t for p in parts for t in p.tone_by_period]),
@@ -1562,6 +1594,8 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
         communication_gaps=gaps,
         responsibility_events=responsibility,
         third_party_statements=third_party,
+        medical_appointments=sort_by(
+            [a for p in partials for a in p.medical_appointments], "date"),
         suggestions=suggestions,
         tone_by_period=_merge_tone([t for p in partials for t in p.tone_by_period]),
         sentiment_overview=narrative.sentiment_overview,
@@ -1820,6 +1854,11 @@ def _merge_document_evidence(report, docs) -> None:
     if docs.third_party_statements:
         report.third_party_statements = sorted(
             list(report.third_party_statements) + list(docs.third_party_statements),
+            key=lambda e: e.date or "",
+        )
+    if docs.medical_appointments:
+        report.medical_appointments = sorted(
+            list(report.medical_appointments) + list(docs.medical_appointments),
             key=lambda e: e.date or "",
         )
     for note in docs.limitations:

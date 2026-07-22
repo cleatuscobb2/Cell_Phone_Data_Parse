@@ -57,6 +57,7 @@ export function buildReportInsights(data) {
   const finTotalShown = finSolePayer ? partyTotals[finSolePayer] || 0 : fin.total;
 
   const missed = missedSummary(report.missed_or_cancelled || []);
+  const medical = medicalAppointments(report);
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
   const respThemes = responsibilityThemes(report);
@@ -95,6 +96,27 @@ export function buildReportInsights(data) {
       `Of ${(report.responsibility_events || []).length} parenting-responsibility ` +
         `entries, ${userRole} handled ${mTot} and father ${fTot}; the heaviest ` +
         `category is ${responsibilities[0].full}.`,
+    );
+  }
+  if (medical.rows.length > 0) {
+    const n = medical.rows.length;
+    const tally = (field) =>
+      medical.rows.reduce(
+        (acc, r) => {
+          const v = r[field];
+          if (v === "mother" || v === "father") acc[v] += 1;
+          return acc;
+        },
+        { mother: 0, father: 0 },
+      );
+    const took = medical.derived ? tally("handled_by") : tally("taken_by");
+    findings.push(
+      `${n} medical appointment${n === 1 ? "" : "s"} on record` +
+        (took.mother + took.father > 0
+          ? ` — ${took.mother} ${medical.derived ? "handled" : "attended"} by ` +
+            `${userRole}, ${took.father} by father`
+          : "") +
+        ".",
     );
   }
   if (respThemes.length > 0) {
@@ -140,11 +162,104 @@ export function buildReportInsights(data) {
     finPayerLabel,
     finTotalShown,
     missed,
+    medical,
     responsibilities,
     radarData,
     respThemes,
     findings,
   };
+}
+
+const MED_CATEGORY = "medical_dental_eye";
+const DAY_MS = 86400000;
+
+function parseDay(d) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ""));
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+}
+const byDate = (a, b) => String(a.date || "").localeCompare(String(b.date || ""));
+
+/**
+ * The medical appointment register.
+ *
+ * Prefers report.medical_appointments, which attributes each role — who
+ * planned it, who booked it, who took the child, who paid — separately.
+ * Reports generated before that field existed only record a single
+ * `responsible_party` per medical responsibility event, so for those we
+ * derive what we honestly can: pair each medical responsibility event with a
+ * medical expense within a week (giving the provider and who paid) and
+ * report the combined party as `handled_by` rather than guessing which role
+ * it was. `derived` tells the renderer which shape it's looking at.
+ */
+export function medicalAppointments(report) {
+  const structured = Array.isArray(report?.medical_appointments)
+    ? report.medical_appointments
+    : [];
+  if (structured.length > 0) {
+    return { derived: false, rows: [...structured].sort(byDate) };
+  }
+
+  const events = (report?.responsibility_events || []).filter(
+    (r) => r.category === MED_CATEGORY,
+  );
+  const expenses = (report?.expenses || []).filter(
+    (e) => e.category === MED_CATEGORY,
+  );
+  const claimed = new Set();
+  const rows = events.map((r) => {
+    // Pair with the nearest unclaimed medical expense within a week — that's
+    // what supplies the provider name and who paid.
+    let best = -1;
+    let bestGap = Infinity;
+    const rd = parseDay(r.date);
+    expenses.forEach((e, i) => {
+      if (claimed.has(i)) return;
+      const ed = parseDay(e.date);
+      if (rd == null || ed == null) return;
+      const gap = Math.abs(ed - rd);
+      if (gap <= 7 * DAY_MS && gap < bestGap) {
+        best = i;
+        bestGap = gap;
+      }
+    });
+    const e = best >= 0 ? expenses[best] : null;
+    if (e) claimed.add(best);
+    return {
+      date: r.date || e?.date || "",
+      child: "",
+      appointment_type: r.subcategory || e?.subcategory || "",
+      provider: e?.vendor || "",
+      handled_by: r.responsible_party || "unclear",
+      planned_by: "unclear",
+      scheduled_by: "unclear",
+      taken_by: "unclear",
+      paid_by: e?.payer || "unclear",
+      amount: e ? Number(e.amount || 0) : null,
+      description: r.description || "",
+      quote: r.quote || "",
+      channel: r.channel || "unclear",
+    };
+  });
+  // A medical payment with no matching message still evidences a visit.
+  expenses.forEach((e, i) => {
+    if (claimed.has(i)) return;
+    rows.push({
+      date: e.date || "",
+      child: "",
+      appointment_type: e.subcategory || "",
+      provider: e.vendor || "",
+      handled_by: "unclear",
+      planned_by: "unclear",
+      scheduled_by: "unclear",
+      taken_by: "unclear",
+      paid_by: e.payer || "unclear",
+      amount: Number(e.amount || 0),
+      description: e.description || "",
+      quote: e.quote || "",
+      channel: "unclear",
+    });
+  });
+  return { derived: true, rows: rows.sort(byDate) };
 }
 
 /**

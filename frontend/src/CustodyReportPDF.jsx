@@ -734,6 +734,47 @@ const CHANNEL_LABEL = {
   unclear: "Source unclear",
 };
 
+// Medical appointment register — a compact fixed-width table.
+const medStyles = StyleSheet.create({
+  headRow: {
+    flexDirection: "row",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#cbd5e1",
+    paddingBottom: 2,
+    marginBottom: 2,
+  },
+  row: {
+    flexDirection: "row",
+    borderBottomWidth: 0.3,
+    borderBottomColor: "#f1f5f9",
+    paddingVertical: 1.5,
+  },
+  cell: { fontSize: 6.5, paddingRight: 3 },
+  head: { fontFamily: "Helvetica-Bold", color: "#475569" },
+  date: { width: 46 },
+  child: { width: 40 },
+  type: { width: 74 },
+  prov: { width: 74 },
+  role: { width: 42 },
+  amt: { width: 40, textAlign: "right" },
+});
+
+/** A party cell, tinted to the parent so the table scans quickly. */
+function partyStyle(party) {
+  if (party === "mother") return { color: PDF_COLORS.mother };
+  if (party === "father") return { color: PDF_COLORS.father };
+  if (party === "shared") return { color: PDF_COLORS.shared };
+  return { color: "#94a3b8" };
+}
+
+/** "mother" renders as the filer's actual role word; unclear renders as a dash. */
+function partyText(party, meta) {
+  if (party === "mother") return meta.user_role || "mother";
+  if (party === "father") return "father";
+  if (party === "shared") return "shared";
+  return "—";
+}
+
 function EvidenceItem({
   date,
   channel,
@@ -923,6 +964,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     responsibilities,
     radarData,
     respThemes,
+    medical,
     findings,
   } = buildReportInsights(data);
 
@@ -1341,6 +1383,75 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                     </Text>
                   ) : null,
                 )}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Medical appointment register — each caregiving role attributed
+            separately when the analysis captured them. */}
+        {medical.rows.length > 0 ? (
+          <View>
+            <Text style={styles.h2}>Medical Appointments</Text>
+            <Text style={styles.caption}>
+              {medical.rows.length} appointment
+              {medical.rows.length === 1 ? "" : "s"} on record
+              {medical.derived
+                ? " · this report predates per-role capture, so it shows the one party each entry names as handling it — re-run the analysis to split planned / scheduled / took"
+                : " · who planned it, who booked it, who took the child, and who paid"}
+            </Text>
+            <View style={medStyles.headRow}>
+              <Text style={[medStyles.cell, medStyles.date, medStyles.head]}>Date</Text>
+              <Text style={[medStyles.cell, medStyles.child, medStyles.head]}>Child</Text>
+              <Text style={[medStyles.cell, medStyles.type, medStyles.head]}>Type</Text>
+              <Text style={[medStyles.cell, medStyles.prov, medStyles.head]}>Provider</Text>
+              {medical.derived ? (
+                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Handled by</Text>
+              ) : (
+                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Planned</Text>
+              )}
+              {!medical.derived ? (
+                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Scheduled</Text>
+              ) : null}
+              {!medical.derived ? (
+                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Took</Text>
+              ) : null}
+              <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Paid</Text>
+              <Text style={[medStyles.cell, medStyles.amt, medStyles.head]}>Amount</Text>
+            </View>
+            {medical.rows.map((a, i) => (
+              <View key={i} style={medStyles.row} wrap={false}>
+                <Text style={[medStyles.cell, medStyles.date]}>{a.date || "—"}</Text>
+                <Text style={[medStyles.cell, medStyles.child]}>{a.child || "—"}</Text>
+                <Text style={[medStyles.cell, medStyles.type]}>
+                  {a.appointment_type || "—"}
+                </Text>
+                <Text style={[medStyles.cell, medStyles.prov]}>{a.provider || "—"}</Text>
+                <Text
+                  style={[
+                    medStyles.cell,
+                    medStyles.role,
+                    partyStyle(medical.derived ? a.handled_by : a.planned_by),
+                  ]}
+                >
+                  {partyText(medical.derived ? a.handled_by : a.planned_by, meta)}
+                </Text>
+                {!medical.derived ? (
+                  <Text style={[medStyles.cell, medStyles.role, partyStyle(a.scheduled_by)]}>
+                    {partyText(a.scheduled_by, meta)}
+                  </Text>
+                ) : null}
+                {!medical.derived ? (
+                  <Text style={[medStyles.cell, medStyles.role, partyStyle(a.taken_by)]}>
+                    {partyText(a.taken_by, meta)}
+                  </Text>
+                ) : null}
+                <Text style={[medStyles.cell, medStyles.role, partyStyle(a.paid_by)]}>
+                  {partyText(a.paid_by, meta)}
+                </Text>
+                <Text style={[medStyles.cell, medStyles.amt]}>
+                  {a.amount != null && a.amount > 0 ? usd(a.amount) : "—"}
+                </Text>
               </View>
             ))}
           </View>

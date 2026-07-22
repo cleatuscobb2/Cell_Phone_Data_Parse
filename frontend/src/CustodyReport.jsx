@@ -193,6 +193,20 @@ function Stat({ label, value, color }) {
   );
 }
 
+/** A party name tinted to the parent, or a dash when unattributed. */
+function PartyText({ party, role }) {
+  if (party === "mother") {
+    return <span style={{ color: PARENT_COLORS.mother }}>{role || "mother"}</span>;
+  }
+  if (party === "father") {
+    return <span style={{ color: PARENT_COLORS.father }}>father</span>;
+  }
+  if (party === "shared") {
+    return <span style={{ color: PARENT_COLORS.shared }}>shared</span>;
+  }
+  return <span className="text-slate-300">—</span>;
+}
+
 function ChartCaption({ children }) {
   return <p className="mb-1 text-xs font-medium text-slate-500">{children}</p>;
 }
@@ -344,6 +358,7 @@ export default function CustodyReport({ data }) {
     responsibilities,
     radarData,
     respThemes,
+    medical,
     findings,
   } = buildReportInsights(data);
   const finPayerColor =
@@ -896,6 +911,79 @@ export default function CustodyReport({ data }) {
                 )}
               </div>
             ))}
+          </div>
+        </Panel>
+      )}
+
+      {/* Medical appointment register — role-level attribution when the
+          analysis captured it, otherwise the honest combined view. */}
+      {medical.rows.length > 0 && (
+        <Panel
+          title="Medical Appointments"
+          subtitle={
+            medical.derived
+              ? `${medical.rows.length} on record — this report predates per-role capture, so it shows the one party each entry names as handling it; re-run the analysis to split planned / scheduled / took`
+              : `${medical.rows.length} on record — who planned it, who booked it, who took the child, and who paid`
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs text-slate-500">
+                  <th className="py-1 text-left font-semibold">Date</th>
+                  <th className="py-1 text-left font-semibold">Child</th>
+                  <th className="py-1 text-left font-semibold">Type</th>
+                  <th className="py-1 text-left font-semibold">Provider</th>
+                  <th className="py-1 text-left font-semibold">
+                    {medical.derived ? "Handled by" : "Planned"}
+                  </th>
+                  {!medical.derived && (
+                    <th className="py-1 text-left font-semibold">Scheduled</th>
+                  )}
+                  {!medical.derived && (
+                    <th className="py-1 text-left font-semibold">Took</th>
+                  )}
+                  <th className="py-1 text-left font-semibold">Paid</th>
+                  <th className="py-1 text-right font-semibold">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {medical.rows.map((a, i) => (
+                  <tr key={i} className="border-b border-slate-50 align-top">
+                    <td className="py-1 whitespace-nowrap text-slate-700">
+                      {a.date || "—"}
+                    </td>
+                    <td className="py-1 text-slate-700">{a.child || "—"}</td>
+                    <td className="py-1 text-slate-700">
+                      {a.appointment_type || "—"}
+                    </td>
+                    <td className="py-1 text-slate-700">{a.provider || "—"}</td>
+                    <td className="py-1">
+                      <PartyText
+                        party={medical.derived ? a.handled_by : a.planned_by}
+                        role={meta.user_role}
+                      />
+                    </td>
+                    {!medical.derived && (
+                      <td className="py-1">
+                        <PartyText party={a.scheduled_by} role={meta.user_role} />
+                      </td>
+                    )}
+                    {!medical.derived && (
+                      <td className="py-1">
+                        <PartyText party={a.taken_by} role={meta.user_role} />
+                      </td>
+                    )}
+                    <td className="py-1">
+                      <PartyText party={a.paid_by} role={meta.user_role} />
+                    </td>
+                    <td className="py-1 text-right text-slate-700">
+                      {a.amount != null && a.amount > 0 ? usd(a.amount) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Panel>
       )}
