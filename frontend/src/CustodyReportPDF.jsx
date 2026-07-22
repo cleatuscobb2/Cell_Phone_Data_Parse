@@ -976,14 +976,14 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   if (txPages.length === 0) txPages.push([]);
 
   return (
-    <Document title="Co-Parenting Communication Report">
+    <Document title="Custodia — Care, Responsibility &amp; Expense Report">
       <Page
         size="LETTER"
         orientation={landscape ? "landscape" : "portrait"}
         style={styles.page}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Co-Parenting Communication Report</Text>
+          <Text style={styles.title}>Care, Responsibility &amp; Expense Report</Text>
           <Text style={styles.headerMeta}>
             Prepared by the children&rsquo;s {meta.user_role} · Other parent:{" "}
             {meta.other_parent}
@@ -1798,7 +1798,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         ))}
 
         <Text style={styles.footer} fixed>
-          Co-Parenting Communication Report · Confidential — prepared for legal
+          Custodia · Confidential — prepared for legal
           counsel
         </Text>
       </Page>
@@ -1839,7 +1839,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             </View>
           ))}
           <Text style={styles.footer} fixed>
-            Co-Parenting Communication Report · Confidential — prepared for legal
+            Custodia · Confidential — prepared for legal
             counsel
           </Text>
         </Page>

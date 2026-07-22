@@ -658,10 +658,11 @@ export default function MessageSummarizer() {
               C
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">Casefile</h1>
+              <h1 className="text-2xl font-bold text-slate-800">Custodia</h1>
               <p className="text-sm text-slate-500">
-                Your custody record — from your own messages, receipts, and statements.
-                Processed in memory, never stored.
+                Care, responsibilities, and expenses — the record of who did
+                what, built from your own messages, receipts, and statements.
+                Files are deleted as soon as your report finishes.
               </p>
             </div>
           </div>
@@ -711,7 +712,7 @@ export default function MessageSummarizer() {
         <div className="inline-flex gap-1 rounded-full bg-white p-1 text-sm shadow-sm ring-1 ring-slate-200">
           {[
             ["summary", "General Summary"],
-            ["custody", "Custody Analysis"],
+            ["custody", "Full Record & Report"],
           ].map(([m, label]) => (
             <button
               key={m}

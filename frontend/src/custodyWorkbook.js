@@ -504,7 +504,7 @@ function buildSummarySheet(wb, meta, cb, report, fin) {
 export function buildCustodyWorkbook(data) {
   const { meta = {}, custody_breakdown: cb = {}, report = {} } = data || {};
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Co-Parenting Communication Report";
+  wb.creator = "Custodia — Care, Responsibility & Expense Record";
   wb.created = new Date();
 
   // Ref-annotated transcript + a linker from each event to its source message.

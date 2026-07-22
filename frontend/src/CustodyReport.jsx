@@ -302,7 +302,7 @@ export default function CustodyReport({ data }) {
     setPdfError("");
     try {
       const blob = await pdf(<CustodyReportPDF data={data} />).toBlob();
-      saveBlob(blob, `custody-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      saveBlob(blob, `custodia-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (err) {
       setPdfError(err?.message || "Could not generate the PDF.");
     } finally {
@@ -315,7 +315,7 @@ export default function CustodyReport({ data }) {
     setXlsxError("");
     try {
       const blob = await generateCustodyWorkbookBlob(data);
-      saveBlob(blob, `custody-evidence-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      saveBlob(blob, `custodia-evidence-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
       setXlsxError(err?.message || "Could not generate the Excel file.");
     } finally {
@@ -377,7 +377,9 @@ export default function CustodyReport({ data }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-bold text-slate-800">Custody Analysis Report</h2>
+          <h2 className="text-lg font-bold text-slate-800">
+            Care, Responsibility &amp; Expense Report
+          </h2>
           {data.edited && (
             <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
               Regenerated from your edited workbook
