@@ -24,13 +24,10 @@ import {
   carePatternData,
   custodySplitData,
   missedByMonthAndTypeData,
-  missedSummary,
   MISSED_TYPES,
-  responsibilityData,
-  responsibilityRadarData,
-  responsibilityThemes,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
+import { buildReportInsights } from "./reportInsights.js";
 import {
   requiredForms,
   FORM_EVIDENCE,
@@ -38,10 +35,6 @@ import {
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
 import { buildEvidenceRefs } from "./messageRefs.js";
-import {
-  buildFinancialSummary,
-  buildFinancialCrossValidation,
-} from "./financial.js";
 import { buildSca106Worksheet } from "./scaFc106.js";
 
 const usd = (n) =>
@@ -911,16 +904,35 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   const missedSeries = MISSED_TYPE_SERIES.filter((s) =>
     missedMonthly.some((r) => r[s.key] > 0),
   );
-  const responsibilities = responsibilityData(report);
-  const radarData = responsibilityRadarData(report);
-  // Cross-cutting themes — the qualitative picture that the court taxonomy
-  // (and especially the free-text "Other" entries) otherwise buries.
-  const respThemes = responsibilityThemes(report);
+  // Everything derived — financial rollup and who actually paid, the missed
+  // summary, responsibility charts and themes, and the At-a-Glance findings —
+  // comes from the shared insights model, so the PDF and the on-screen report
+  // always state the same numbers.
+  const {
+    fin,
+    finFindings,
+    finSolePayer,
+    finPayerLabel,
+    finTotalShown,
+    missed,
+    responsibilities,
+    radarData,
+    respThemes,
+    findings,
+  } = buildReportInsights(data);
 
-  // Missed / cancelled: summarized across the timespan instead of listed row
-  // by row (the rows live in the evidence workbook). Per-parent attribution
-  // only exists on reports generated after MissedVisit gained that field.
-  const missed = missedSummary(report.missed_or_cancelled);
+  const finPayerColor =
+    finSolePayer === "father" ? PDF_COLORS.father : PDF_COLORS.mother;
+  // Single-series spec for the per-category sub-category charts.
+  const SUB_SERIES = [{ key: "amount", color: finPayerColor, label: "Paid" }];
+  // Flatten by_category for PdfHBar (which wants top-level series keys).
+  const finCategoryRows = fin.by_category.map((c) => ({
+    full: c.label,
+    mother: c.totals.mother,
+    father: c.totals.father,
+    shared: c.totals.shared,
+    unclear: c.totals.unclear,
+  }));
   const missedStats = [
     { label: "Total missed / cancelled", value: missed.total, color: null },
     ...(missed.hasParty
@@ -938,122 +950,6 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
       : [{ label: "Years affected", value: missed.byYear.length, color: null }]),
   ];
 
-  // Financial Contribution — totals + cross-validation. Empty by default.
-  const fin = buildFinancialSummary(expenses || []);
-  const finFindings = fin.hasExpenses
-    ? buildFinancialCrossValidation(expenses, report.responsibility_events || [])
-    : [];
-  // Flatten by_category for PdfHBar (which wants top-level series keys).
-  const finCategoryRows = fin.by_category.map((c) => ({
-    full: c.label,
-    mother: c.totals.mother,
-    father: c.totals.father,
-    shared: c.totals.shared,
-    unclear: c.totals.unclear,
-  }));
-  // When effectively every document belongs to one parent (common when only
-  // that parent's receipts and statements were uploaded), present the section
-  // as their contributions rather than a two-parent split that reads as if the
-  // other parent contributed nothing.
-  const finPartyTotals = fin.grand_total || {};
-  const finSum = ["mother", "father", "shared", "unclear"].reduce(
-    (s, p) => s + (finPartyTotals[p] || 0),
-    0,
-  );
-  const finSolePayer =
-    finSum > 0
-      ? ["mother", "father"].find(
-          (p) => (finPartyTotals[p] || 0) / finSum >= 0.995,
-        ) || null
-      : null;
-  const finPayerLabel = finSolePayer === "father" ? "father" : meta.user_role;
-  const finPayerColor =
-    finSolePayer === "father" ? PDF_COLORS.father : PDF_COLORS.mother;
-  const finTotalShown = finSolePayer
-    ? finPartyTotals[finSolePayer] || 0
-    : fin.total;
-  // Single-series spec for the per-category sub-category charts.
-  const SUB_SERIES = [{ key: "amount", color: finPayerColor, label: "Paid" }];
-
-  // At-a-glance findings, computed from the evidence already in the report so
-  // a reader gets the shape of the case before wading into the detail.
-  const findings = [];
-  const cbAttributed =
-    (cb.instances_with_mother || 0) +
-    (cb.instances_with_father || 0) +
-    (cb.instances_shared || 0);
-  if (cbAttributed > 0) {
-    const m = cb.estimated_pct_mother ?? 0;
-    const f = cb.estimated_pct_father ?? 0;
-    findings.push(
-      `Childcare splits ${m}% / ${f}% (${meta.user_role} / father) across ` +
-        `${cbAttributed} attributable instance${cbAttributed === 1 ? "" : "s"}` +
-        (cb.instances_unclear
-          ? `; ${cb.instances_unclear} could not be attributed.`
-          : "."),
-    );
-  }
-  if (missed.total > 0) {
-    const worstYear = [...missed.byYear].sort((a, b) => b.total - a.total)[0];
-    findings.push(
-      `${missed.total} missed or cancelled visit${missed.total === 1 ? "" : "s"}` +
-        (missed.hasParty
-          ? ` — ${missed.byParty.father} attributed to father, ` +
-            `${missed.byParty.mother} to ${meta.user_role}`
-          : "") +
-        (worstYear
-          ? `; ${worstYear.year} was the heaviest year (${worstYear.total}).`
-          : "."),
-    );
-  }
-  if (responsibilities.length > 0) {
-    const mTot = responsibilities.reduce((s, r) => s + r.mother, 0);
-    const fTot = responsibilities.reduce((s, r) => s + r.father, 0);
-    findings.push(
-      `Of ${report.responsibility_events.length} parenting-responsibility ` +
-        `entries, ${meta.user_role} handled ${mTot} and father ${fTot}; the ` +
-        `heaviest category is ${responsibilities[0].full}.`,
-    );
-  }
-  if (respThemes.length > 0) {
-    const lopsided = respThemes
-      .map((t) => ({ ...t, gap: Math.abs(t.mother - t.father) }))
-      .filter((t) => t.gap > 0)
-      .sort((a, b) => b.gap - a.gap)
-      .slice(0, 3);
-    if (lopsided.length > 0) {
-      findings.push(
-        "Most one-sided themes: " +
-          lopsided
-            .map(
-              (t) =>
-                `${t.label} (${meta.user_role} ${t.mother} vs father ${t.father})`,
-            )
-            .join("; ") +
-          ".",
-      );
-    }
-  }
-  if (fin.hasExpenses) {
-    findings.push(
-      `${usd(finTotalShown)} in documented child-related expenses across ` +
-        `${expenses.length} document${expenses.length === 1 ? "" : "s"}` +
-        (finSolePayer ? `, all paid by ${finPayerLabel}` : "") +
-        ".",
-    );
-  }
-  if ((report.communication_gaps || []).length > 0) {
-    const longest = [...report.communication_gaps].sort(
-      (a, b) => (b.days || 0) - (a.days || 0),
-    )[0];
-    findings.push(
-      `${report.communication_gaps.length} notable communication gap` +
-        `${report.communication_gaps.length === 1 ? "" : "s"}; the longest ran ` +
-        `${longest.days} days (${longest.start_date} to ${longest.end_date}).`,
-    );
-  }
-
-  // WV SCA-FC-106 worksheet — only when WV is the filing state.
   const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
   const sca106 = isWV
     ? buildSca106Worksheet(expenses || [], cb, meta.financial_inputs || {})
