@@ -28,7 +28,11 @@
  */
 
 import ExcelJS from "exceljs";
-import { RESPONSIBILITY_CATEGORIES, RESPONSIBILITY_LABELS } from "./chartData.js";
+import {
+  RESPONSIBILITY_CATEGORIES,
+  RESPONSIBILITY_LABELS,
+  responsibilityThemes,
+} from "./chartData.js";
 import {
   requiredForms,
   FORM_EVIDENCE,
@@ -99,6 +103,148 @@ function dataSheet(wb, name, columns, rows) {
   rows.forEach((r) => sheet.addRow(r));
   styleSheet(sheet, columns.length);
   return sheet;
+}
+
+const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+
+/**
+ * Build a pre-computed cross-tab ("pivot") sheet: one row per distinct `row`,
+ * one column per distinct `col`, cells summed, with a Total column and a grand
+ * total row.
+ *
+ * ExcelJS cannot emit native Excel PivotTables/PivotCharts, so these give the
+ * same at-a-glance read — and because each is a clean rectangular block,
+ * Excel's Insert ▸ Recommended Charts turns any of them into a chart in one
+ * click. Skipped entirely when there's nothing to summarize.
+ */
+function pivotSheet(wb, name, rowHeader, triples, { colOrder = null, money = false } = {}) {
+  if (!triples.length) return null;
+  const byRow = {};
+  const order = [];
+  const colsSeen = [];
+  for (const { row, col, val } of triples) {
+    if (!byRow[row]) {
+      byRow[row] = { [rowHeader]: row, Total: 0 };
+      order.push(row);
+    }
+    if (!colsSeen.includes(col)) colsSeen.push(col);
+    byRow[row][col] = (byRow[row][col] || 0) + val;
+    byRow[row].Total += val;
+  }
+  const cols = colOrder
+    ? colOrder.filter((c) => colsSeen.includes(c))
+    : colsSeen.slice().sort();
+  const total = { [rowHeader]: "Grand total", Total: 0 };
+  const rows = order.map((r) => byRow[r]);
+  for (const r of rows) {
+    for (const c of cols) {
+      r[c] = round2(r[c] || 0);
+      total[c] = round2((total[c] || 0) + r[c]);
+    }
+    r.Total = round2(r.Total);
+    total.Total = round2(total.Total + r.Total);
+  }
+  rows.sort((a, b) => b.Total - a.Total);
+  const width = money ? 15 : 12;
+  const columns = [
+    { header: rowHeader, key: rowHeader, width: 38 },
+    ...cols.map((c) => ({ header: c, key: c, width })),
+    { header: "Total", key: "Total", width },
+  ];
+  const sheet = dataSheet(wb, name, columns, [...rows, total]);
+  // Bold the grand-total row and right-align the numeric block.
+  sheet.getRow(sheet.rowCount).font = { bold: true };
+  if (money) {
+    for (let c = 2; c <= columns.length; c++) {
+      sheet.getColumn(c).numFmt = '"$"#,##0.00';
+    }
+  }
+  return sheet;
+}
+
+const PARTY_ORDER = ["Mother", "Father", "Shared", "Unclear"];
+
+/**
+ * Cross-tab tabs for quick insight — expenses by category/sub-category and
+ * payer, responsibilities and themes by parent, childcare by month, and
+ * missed visits by year and type.
+ */
+function buildPivotSheets(wb, report, expenses, hasExpenses) {
+  const yearOf = (d) => String(d || "").slice(0, 4) || "—";
+  const monthOf = (d) => String(d || "").slice(0, 7) || "—";
+  const catLabel = (k) => RESPONSIBILITY_LABELS[k] || "Other";
+
+  if (hasExpenses) {
+    pivotSheet(
+      wb,
+      "Pivot - Spend by Year",
+      "Category › Sub-category",
+      expenses.map((e) => ({
+        row: `${catLabel(e.category)} › ${e.subcategory || "Uncategorized"}`,
+        col: yearOf(e.date),
+        val: Number(e.amount || 0),
+      })),
+      { money: true },
+    );
+    pivotSheet(
+      wb,
+      "Pivot - Spend by Payer",
+      "Category › Sub-category",
+      expenses.map((e) => ({
+        row: `${catLabel(e.category)} › ${e.subcategory || "Uncategorized"}`,
+        col: partyLabel(e.payer),
+        val: Number(e.amount || 0),
+      })),
+      { colOrder: PARTY_ORDER, money: true },
+    );
+  }
+
+  pivotSheet(
+    wb,
+    "Pivot - Responsibilities",
+    "Court category",
+    (report.responsibility_events || []).map((r) => ({
+      row: catLabel(r.category),
+      col: partyLabel(r.responsible_party),
+      val: 1,
+    })),
+    { colOrder: PARTY_ORDER },
+  );
+
+  // Themes reuse the same classifier the PDF's per-parent theme section uses,
+  // so the workbook and the report agree.
+  const themeTriples = [];
+  for (const t of responsibilityThemes(report)) {
+    for (const p of ["mother", "father", "shared", "unclear"]) {
+      if (t[p]) themeTriples.push({ row: t.label, col: partyLabel(p), val: t[p] });
+    }
+  }
+  pivotSheet(wb, "Pivot - Themes", "Co-parenting theme", themeTriples, {
+    colOrder: PARTY_ORDER,
+  });
+
+  pivotSheet(
+    wb,
+    "Pivot - Childcare by Month",
+    "Month",
+    (report.childcare_events || []).map((e) => ({
+      row: monthOf(e.date),
+      col: partyLabel(e.parent),
+      val: 1,
+    })),
+    { colOrder: PARTY_ORDER },
+  );
+
+  pivotSheet(
+    wb,
+    "Pivot - Missed by Year",
+    "Year",
+    (report.missed_or_cancelled || []).map((m) => ({
+      row: yearOf(m.date),
+      col: MISSED_KIND_LABEL[m.kind] || "Other",
+      val: 1,
+    })),
+  );
 }
 
 // --- Column definitions -------------------------------------------------------
@@ -634,6 +780,9 @@ export function buildCustodyWorkbook(data) {
     }
     dataSheet(wb, "SCA-FC-106 Worksheet", SCA106_COLS, rows);
   }
+
+  // Pre-computed cross-tabs for quick insight (see buildPivotSheets).
+  buildPivotSheets(wb, report, expenses, fin.hasExpenses);
 
   dataSheet(
     wb,
