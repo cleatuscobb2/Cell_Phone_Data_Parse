@@ -36,21 +36,15 @@ import {
   custodySplitData,
   missedByMonthAndTypeData,
   MISSED_TYPES,
-  responsibilityData,
-  responsibilityRadarData,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
+import { buildReportInsights, toneByYear } from "./reportInsights.js";
 import {
   requiredForms,
   FORM_EVIDENCE,
   EVIDENCE_LABELS,
 } from "./custodyForms.js";
-import {
-  buildFinancialSummary,
-  buildFinancialCrossValidation,
-} from "./financial.js";
 import { buildSca106Worksheet } from "./scaFc106.js";
-import { refExpenses } from "./messageRefs.js";
 
 const usd = (n) =>
   `$${Number(n || 0).toLocaleString("en-US", {
@@ -72,23 +66,15 @@ const PARENT_BADGE = {
   unclear: "bg-slate-100 text-slate-500 ring-slate-200",
 };
 
+// Tone labels, coloured so a year's read is scannable at a glance.
+const TONE_TEXT = {
+  positive: "text-emerald-600",
+  neutral: "text-slate-500",
+  negative: "text-rose-600",
+};
 const MISSED_BADGE = "bg-rose-100 text-rose-700 ring-rose-200";
 const CATEGORY_BADGE = "bg-sky-100 text-sky-700 ring-sky-200";
 
-const SUGGESTION_LABELS = {
-  attachment: "Attachment",
-  key_statement: "Key statement",
-  evidence_to_gather: "Gather evidence",
-  follow_up: "Follow-up",
-  other: "Suggestion",
-};
-const SUGGESTION_BADGE = {
-  attachment: "bg-amber-100 text-amber-700 ring-amber-200",
-  key_statement: "bg-indigo-100 text-indigo-700 ring-indigo-200",
-  evidence_to_gather: "bg-sky-100 text-sky-700 ring-sky-200",
-  follow_up: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  other: "bg-slate-100 text-slate-600 ring-slate-200",
-};
 
 // Shared chart styling for a clean, consistent, professional look.
 const AXIS = {
@@ -192,6 +178,18 @@ function Badge({ text, className }) {
     >
       {text}
     </span>
+  );
+}
+
+/** A single headline figure, optionally tinted to a parent's colour. */
+function Stat({ label, value, color }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+      <div className="text-xl font-bold" style={color ? { color } : undefined}>
+        <span className={color ? "" : "text-slate-800"}>{value}</span>
+      </div>
+      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
+    </div>
   );
 }
 
@@ -332,20 +330,24 @@ export default function CustodyReport({ data }) {
   const missedPresentTypes = MISSED_TYPES.filter((t) =>
     missedMonthly.some((r) => r[t.key] > 0),
   );
-  const responsibilities = responsibilityData(report);
-  const radarData = responsibilityRadarData(report);
-
-  // Financial Contribution — totals + cross-validation against the
-  // ResponsibilityEvent list. Empty by default; rendered only when the
-  // user uploaded receipts or payment-app exports.
-  const expensesRefed = refExpenses(report.expenses || []);
-  const fin = buildFinancialSummary(expensesRefed);
-  const finFindings = fin.hasExpenses
-    ? buildFinancialCrossValidation(
-        expensesRefed,
-        report.responsibility_events || [],
-      )
-    : [];
+  // Everything derived comes from the shared insights model, so this view and
+  // the downloadable PDF always state the same numbers.
+  const {
+    expenses: expensesRefed,
+    fin,
+    finFindings,
+    finSolePayer,
+    finPayerLabel,
+    finTotalShown,
+    missed,
+    responsibilities,
+    radarData,
+    respThemes,
+    findings,
+  } = buildReportInsights(data);
+  const finPayerColor =
+    finSolePayer === "father" ? PARENT_COLORS.father : PARENT_COLORS.mother;
+  const toneYears = toneByYear(report);
 
   // WV SCA-FC-106 Financial Statement worksheet — child-related expense
   // averages by category, plus optional % of income. Only renders when WV
@@ -470,6 +472,23 @@ export default function CustodyReport({ data }) {
         <p className="text-sm text-slate-700">{report.overview}</p>
       </Panel>
 
+      {/* The shape of the case up front — same findings as the PDF. */}
+      {findings.length > 0 && (
+        <Panel
+          title="At a Glance"
+          subtitle="Computed from the evidence in this report — every figure is supported by the sections below and the evidence workbook"
+        >
+          <ul className="space-y-2">
+            {findings.map((f, i) => (
+              <li key={i} className="flex gap-2 text-sm text-slate-700">
+                <span className="mt-0.5 text-amber-500">•</span>
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+
       {hasCaseProfile && (
         <Panel
           title="Required WV Filing Forms"
@@ -521,32 +540,8 @@ export default function CustodyReport({ data }) {
         </Panel>
       )}
 
-      {report.suggestions?.length > 0 && (
-        <Panel
-          title="Suggestions"
-          subtitle="Actions to help you and your attorney build the case"
-        >
-          <div className="space-y-1.5">
-            {report.suggestions.map((s, i) => (
-              <div
-                key={i}
-                className="flex gap-2 rounded-md border border-slate-100 px-3 py-2"
-              >
-                <Badge
-                  text={SUGGESTION_LABELS[s.category] ?? "Suggestion"}
-                  className={`self-start ${SUGGESTION_BADGE[s.category] ?? SUGGESTION_BADGE.other}`}
-                />
-                <p className="text-sm text-slate-700">
-                  {s.suggestion}
-                  {s.related_date ? (
-                    <span className="text-slate-400"> ({s.related_date})</span>
-                  ) : null}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
+      {/* "Suggestions" is intentionally omitted here and in the PDF — the full
+          list is a tab in the evidence workbook. */}
 
       <Panel
         title="Event Timeline"
@@ -622,73 +617,114 @@ export default function CustodyReport({ data }) {
                 ))}
               </BarChart>
             </ResponsiveContainer>
-            <div className="mt-4 max-h-96 space-y-1.5 overflow-y-auto pr-1">
-              {report.missed_or_cancelled.map((m, i) => (
-                <EvidenceRow
-                  key={i}
-                  date={m.date}
-                  channel={m.channel}
-                  badge={<Badge text={m.kind.replace(/_/g, " ")} className={MISSED_BADGE} />}
-                  description={m.description}
-                  quote={m.quote}
-                  sender={m.sender}
-                />
-              ))}
+            {/* Summarized across the timespan; every row is in the
+                evidence workbook. */}
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Total missed / cancelled" value={missed.total} />
+              {missed.hasParty ? (
+                <>
+                  <Stat
+                    label={`By ${meta.user_role}`}
+                    value={missed.byParty.mother}
+                    color={PARENT_COLORS.mother}
+                  />
+                  <Stat
+                    label="By father"
+                    value={missed.byParty.father}
+                    color={PARENT_COLORS.father}
+                  />
+                  {missed.byParty.unclear > 0 && (
+                    <Stat label="Unattributed" value={missed.byParty.unclear} />
+                  )}
+                </>
+              ) : (
+                <Stat label="Years affected" value={missed.byYear.length} />
+              )}
+            </div>
+            {!missed.hasParty && (
+              <p className="mt-2 text-xs text-slate-400">
+                Per-parent attribution is available on reports generated after
+                this feature was added — re-run the analysis to split these by
+                parent.
+              </p>
+            )}
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <ChartCaption>By type — whole period</ChartCaption>
+                <ul className="space-y-1">
+                  {missed.byType.map((t) => (
+                    <li key={t.kind} className="flex justify-between text-sm">
+                      <span className="text-slate-700">{t.label}</span>
+                      <span className="font-semibold text-slate-800">
+                        {t.count}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <ChartCaption>
+                  By year{missed.hasParty ? " and parent" : ""}
+                </ChartCaption>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs text-slate-500">
+                      <th className="py-1 text-left font-semibold">Year</th>
+                      <th className="py-1 text-right font-semibold">Total</th>
+                      {missed.hasParty && (
+                        <th
+                          className="py-1 text-right font-semibold"
+                          style={{ color: PARENT_COLORS.mother }}
+                        >
+                          {meta.user_role}
+                        </th>
+                      )}
+                      {missed.hasParty && (
+                        <th
+                          className="py-1 text-right font-semibold"
+                          style={{ color: PARENT_COLORS.father }}
+                        >
+                          Father
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {missed.byYear.map((y) => (
+                      <tr key={y.year} className="border-b border-slate-50">
+                        <td className="py-1 text-slate-700">{y.year}</td>
+                        <td className="py-1 text-right text-slate-800">
+                          {y.total}
+                        </td>
+                        {missed.hasParty && (
+                          <td
+                            className="py-1 text-right"
+                            style={{ color: PARENT_COLORS.mother }}
+                          >
+                            {y.mother}
+                          </td>
+                        )}
+                        {missed.hasParty && (
+                          <td
+                            className="py-1 text-right"
+                            style={{ color: PARENT_COLORS.father }}
+                          >
+                            {y.father}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         )}
       </Panel>
 
-      <Panel
-        title="Communication Gaps"
-        subtitle="Stretches with no outreach about the children"
-      >
-        {report.communication_gaps.length === 0 ? (
-          <EmptyNote>No notable communication gaps were identified.</EmptyNote>
-        ) : (
-          <div className="space-y-1.5">
-            {report.communication_gaps.map((g, i) => (
-              <div key={i} className="rounded-md border border-slate-100 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-500">
-                    {g.start_date} → {g.end_date}
-                  </span>
-                  <Badge text={`${g.days} days`} className={MISSED_BADGE} />
-                </div>
-                <p className="mt-1 text-sm text-slate-700">{g.description}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-
-      <Panel
-        title="Childcare Instances"
-        subtitle="Each instance a child was shown to be in a parent's care"
-      >
-        {report.childcare_events.length === 0 ? (
-          <EmptyNote>No childcare instances were identified.</EmptyNote>
-        ) : (
-          <div className="max-h-96 space-y-1.5 overflow-y-auto pr-1">
-            {report.childcare_events.map((e, i) => (
-              <EvidenceRow
-                key={i}
-                date={e.date}
-                channel={e.channel}
-                badge={
-                  <Badge
-                    text={`with ${e.parent}`}
-                    className={PARENT_BADGE[e.parent] ?? PARENT_BADGE.unclear}
-                  />
-                }
-                description={e.description}
-                quote={e.quote}
-                sender={e.sender}
-              />
-            ))}
-          </div>
-        )}
-      </Panel>
+      {/* "Communication Gaps" and "Childcare Instances" row lists are
+          intentionally omitted here and in the PDF — both are tabs in the
+          evidence workbook, and the gaps also appear on the timeline. */}
 
       <Panel
         title="Responsibility Coverage"
@@ -729,17 +765,12 @@ export default function CustodyReport({ data }) {
             <Tooltip {...TOOLTIP} />
           </RadarChart>
         </ResponsiveContainer>
-      </Panel>
 
-      <Panel
-        title="Parenting Responsibilities"
-        subtitle="Classified into the court-recognized categories"
-      >
         {report.responsibility_events.length === 0 ? (
           <EmptyNote>No responsibility events were identified in the messages.</EmptyNote>
         ) : (
           <>
-            <div className="mb-4">
+            <div className="mt-6">
               <ChartCaption>
                 Who handled each court-recognized category —{" "}
                 <span style={{ color: PARENT_COLORS.mother }}>mother %</span>
@@ -787,77 +818,126 @@ export default function CustodyReport({ data }) {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="max-h-96 space-y-1.5 overflow-y-auto pr-1">
-              {report.responsibility_events.map((r, i) => (
-                <EvidenceRow
-                  key={i}
-                  date={r.date}
-                  channel={r.channel}
-                  badge={
-                    <span className="flex shrink-0 flex-wrap justify-end gap-1">
-                      <Badge
-                        text={RESPONSIBILITY_LABELS[r.category] ?? "Other"}
-                        className={CATEGORY_BADGE}
-                      />
-                      <Badge
-                        text={r.responsible_party}
-                        className={PARENT_BADGE[r.responsible_party] ?? PARENT_BADGE.unclear}
-                      />
-                    </span>
-                  }
-                  description={
-                    r.subcategory ? `${r.subcategory} — ${r.description}` : r.description
-                  }
-                  quote={r.quote}
-                  sender={r.sender}
-                />
-              ))}
-            </div>
           </>
         )}
       </Panel>
 
+      {/* The qualitative picture — the court taxonomy buries it in free-text
+          "Other" entries, so themes are pulled back out and attributed. */}
+      {respThemes.length > 0 && (
+        <Panel
+          title="Co-Parenting Themes — Per-Parent Picture"
+          subtitle={`Cross-cutting themes from every responsibility entry (including the free-text "Other" items), each backed by a quote`}
+        >
+          <ChartCaption>
+            Instances mentioning each theme —{" "}
+            <span style={{ color: PARENT_COLORS.mother }}>{meta.user_role}</span>
+            {" · "}
+            <span style={{ color: PARENT_COLORS.father }}>father</span>
+          </ChartCaption>
+          <ResponsiveContainer
+            width="100%"
+            height={Math.max(200, respThemes.length * 26 + 52)}
+          >
+            <BarChart data={respThemes} layout="vertical" barCategoryGap="22%">
+              <CartesianGrid {...GRID} horizontal={false} />
+              <XAxis {...AXIS} type="number" allowDecimals={false} />
+              <YAxis
+                {...AXIS}
+                type="category"
+                dataKey="label"
+                width={150}
+                tick={{ fontSize: 11, fill: "#475569" }}
+              />
+              <Tooltip {...TOOLTIP} />
+              <Legend wrapperStyle={LEGEND} />
+              <Bar dataKey="mother" stackId="t" fill={PARENT_COLORS.mother} name="Mother" barSize={14} />
+              <Bar dataKey="father" stackId="t" fill={PARENT_COLORS.father} name="Father" barSize={14} />
+              <Bar dataKey="shared" stackId="t" fill={PARENT_COLORS.shared} name="Shared" barSize={14} />
+              <Bar
+                dataKey="unclear"
+                stackId="t"
+                fill={PARENT_COLORS.unclear}
+                name="Unclear"
+                barSize={14}
+                radius={[0, 3, 3, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="mt-4 space-y-3">
+            {respThemes.map((t) => (
+              <div key={t.key} className="rounded-md border border-slate-100 px-3 py-2">
+                <div className="text-sm font-semibold text-slate-800">
+                  {t.label}
+                  {" — "}
+                  <span style={{ color: PARENT_COLORS.mother }}>
+                    {meta.user_role} {t.mother}
+                  </span>
+                  {" · "}
+                  <span style={{ color: PARENT_COLORS.father }}>
+                    father {t.father}
+                  </span>
+                  {t.shared ? ` · shared ${t.shared}` : ""}
+                  {t.unclear ? ` · unclear ${t.unclear}` : ""}
+                </div>
+                {["mother", "father"].map((party) =>
+                  t.exemplars[party] ? (
+                    <p key={party} className="mt-1 text-xs italic text-slate-500">
+                      {party === "father" ? "Father" : meta.user_role}: &ldquo;
+                      {t.exemplars[party].text}&rdquo;
+                      {t.exemplars[party].date
+                        ? ` (${t.exemplars[party].date})`
+                        : ""}
+                    </p>
+                  ) : null,
+                )}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       {fin.hasExpenses && (
         <Panel
-          title="Financial Contribution"
-          subtitle={`Total of ${usd(fin.total)} in child-related expenses${
+          title={`Financial Contribution${finSolePayer ? ` — ${finPayerLabel}` : ""}`}
+          subtitle={`${usd(finTotalShown)} in child-related expenses${
             fin.period ? ` from ${fin.period.start} to ${fin.period.end}` : ""
+          }${
+            finSolePayer
+              ? ` · every document on file is ${finPayerLabel}'s payment`
+              : ""
           }`}
         >
-          {/* Headline totals — same look as the stat cards on the PDF. */}
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Total tracked</p>
-              <p className="text-lg font-bold text-slate-800">{usd(fin.total)}</p>
-            </div>
-            <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3">
-              <p className="text-xs text-indigo-600">Paid by {meta.user_role}</p>
-              <p className="text-lg font-bold text-indigo-800">
-                {usd(fin.grand_total.mother)}
-              </p>
-            </div>
-            <div className="rounded-md border border-orange-200 bg-orange-50 p-3">
-              <p className="text-xs text-orange-600">Paid by father</p>
-              <p className="text-lg font-bold text-orange-800">
-                {usd(fin.grand_total.father)}
-              </p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-white p-3">
-              <p className="text-xs text-slate-500">Receipts / payments</p>
-              <p className="text-lg font-bold text-slate-800">
-                {expensesRefed.length}
-              </p>
-            </div>
+          {/* Headline totals — mirrors the PDF's stat row. */}
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat
+              label={finSolePayer ? `Paid by ${finPayerLabel}` : "Total tracked"}
+              value={usd(finTotalShown)}
+              color={finSolePayer ? finPayerColor : undefined}
+            />
+            <Stat label="Categories" value={fin.by_category_sub.length} />
+            <Stat label="Receipts / payments" value={expensesRefed.length} />
           </div>
 
           {/* Spend share by court category. */}
           {fin.by_category.length > 0 && (
             <div className="mb-6">
               <ChartCaption>
-                Dollars spent per category —{" "}
-                <span style={{ color: PARENT_COLORS.mother }}>{meta.user_role}</span>
-                {" vs. "}
-                <span style={{ color: PARENT_COLORS.father }}>father</span>
+                {finSolePayer ? (
+                  <>
+                    Dollars spent per court-recognized category — all paid by{" "}
+                    <span style={{ color: finPayerColor }}>{finPayerLabel}</span>
+                  </>
+                ) : (
+                  <>
+                    Dollars spent per category —{" "}
+                    <span style={{ color: PARENT_COLORS.mother }}>
+                      {meta.user_role}
+                    </span>
+                    {" vs. "}
+                    <span style={{ color: PARENT_COLORS.father }}>father</span>
+                  </>
+                )}
               </ChartCaption>
               <ResponsiveContainer
                 width="100%"
@@ -919,6 +999,57 @@ export default function CustodyReport({ data }) {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* One chart per category, broken down by sub-category — the
+              detail the single category chart flattens away. */}
+          {fin.by_category_sub.map((c) => (
+            <div key={c.key} className="mb-6">
+              <ChartCaption>
+                {c.label} —{" "}
+                {usd(finSolePayer ? c.totals[finSolePayer] || 0 : c.grand_total)}
+                {" across "}
+                {c.expense_count} payment{c.expense_count === 1 ? "" : "s"} · by
+                sub-category
+              </ChartCaption>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(120, c.subs.length * 30 + 44)}
+              >
+                <BarChart
+                  data={c.subs.map((sub) => ({
+                    subcategory: sub.subcategory,
+                    amount: finSolePayer
+                      ? sub[finSolePayer] || 0
+                      : sub.grand_total,
+                  }))}
+                  layout="vertical"
+                  margin={{ left: 4, right: 60 }}
+                >
+                  <CartesianGrid {...GRID} vertical horizontal={false} />
+                  <XAxis
+                    {...AXIS}
+                    type="number"
+                    tickFormatter={(v) => `$${v.toLocaleString()}`}
+                  />
+                  <YAxis
+                    {...AXIS}
+                    type="category"
+                    dataKey="subcategory"
+                    width={150}
+                    tick={{ fontSize: 10, fill: "#475569" }}
+                  />
+                  <Tooltip {...TOOLTIP} formatter={(v) => usd(v)} />
+                  <Bar
+                    dataKey="amount"
+                    fill={finPayerColor}
+                    name="Paid"
+                    barSize={15}
+                    radius={[0, 3, 3, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ))}
 
           {/* Cumulative contribution over time — running totals per parent. */}
           {fin.cumulative.length > 1 && (
@@ -1150,8 +1281,64 @@ export default function CustodyReport({ data }) {
         )}
       </Panel>
 
-      <Panel title="Tone of Co-Parenting Communications">
-        <p className="text-sm text-slate-700">{report.sentiment_overview}</p>
+      {/* Structured tone by year and parent when the report carries it;
+          older reports fall back to the single narrative paragraph. */}
+      <Panel
+        title="Tone of Co-Parenting Communications"
+        subtitle={
+          toneYears.length > 0
+            ? "By year and parent, each with a representative message"
+            : undefined
+        }
+      >
+        {toneYears.length === 0 ? (
+          <p className="text-sm text-slate-700">{report.sentiment_overview}</p>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {toneYears.map(({ year, entries }) => (
+                <div key={year}>
+                  <p className="text-sm font-semibold text-slate-800">{year}</p>
+                  {entries.map((e, i) => (
+                    <div key={i} className="mt-1 pl-3">
+                      <p className="text-sm">
+                        <span
+                          className="font-semibold"
+                          style={{
+                            color:
+                              e.party === "father"
+                                ? PARENT_COLORS.father
+                                : PARENT_COLORS.mother,
+                          }}
+                        >
+                          {e.party === "father" ? "Father" : meta.user_role}
+                        </span>
+                        {" — "}
+                        <span className={TONE_TEXT[e.label] ?? "text-slate-500"}>
+                          {e.label || "neutral"}
+                        </span>
+                        {e.summary ? (
+                          <span className="text-slate-700"> · {e.summary}</span>
+                        ) : null}
+                      </p>
+                      {e.exemplar_quote ? (
+                        <p className="mt-0.5 text-xs italic text-slate-500">
+                          &ldquo;{e.exemplar_quote}&rdquo;
+                          {e.date ? ` (${e.date})` : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            {report.sentiment_overview ? (
+              <p className="mt-4 border-t border-slate-100 pt-3 text-sm text-slate-500">
+                {report.sentiment_overview}
+              </p>
+            ) : null}
+          </>
+        )}
       </Panel>
 
       <Panel title="Limitations & Caveats">
