@@ -25,7 +25,8 @@ const xOf = (frac) => PLOT_X0 + Math.max(0, Math.min(1, frac)) * PLOT_W;
 function Marker({ lane, point }) {
   const cx = xOf(point.frac);
   const cy = lane._yMid;
-  const isMilestone = lane.key === "missed";
+  // Lanes may be split into per-parent sub-lanes, so match on the base lane.
+  const isMilestone = (lane.baseKey || lane.key) === "missed";
   return (
     <g style={{ cursor: "pointer" }}>
       <title>{point.title}</title>
@@ -45,7 +46,8 @@ function Marker({ lane, point }) {
 
 /** One year's swim-lane chart — a full Jan–Dec span with month gridlines. */
 function YearChart({ model, hidden }) {
-  const visible = model.lanes.filter((l) => !hidden.has(l.key));
+  // The filter chips are per base lane; hiding one hides all its sub-lanes.
+  const visible = model.lanes.filter((l) => !hidden.has(l.baseKey || l.key));
   visible.forEach((lane, i) => {
     lane._yTop = AXIS_H + i * LANE_H;
     lane._yMid = lane._yTop + LANE_H / 2;

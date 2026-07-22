@@ -12,12 +12,25 @@
 import { refMessages, sourceRef } from "./messageRefs.js";
 
 export const TIMELINE_LANES = [
-  { key: "childcare", label: "Childcare", color: "#6366f1" },
-  { key: "missed", label: "Missed / Cancelled", color: "#e11d48" },
-  { key: "responsibility", label: "Responsibilities", color: "#0ea5e9" },
+  // `short` is used when a lane splits into per-parent sub-lanes, to keep the
+  // lane-label column narrow enough to read.
+  { key: "childcare", label: "Childcare", short: "Childcare", color: "#6366f1" },
+  { key: "missed", label: "Missed / Cancelled", short: "Missed", color: "#e11d48" },
+  { key: "responsibility", label: "Responsibilities", short: "Resp.", color: "#0ea5e9" },
   { key: "thirdparty", label: "Third-Party", color: "#64748b" },
   { key: "gap", label: "Communication Gaps", color: "#f59e0b" },
 ];
+
+// Lanes that split into per-parent sub-swim-lanes, so the chart shows who did
+// what rather than just that something happened.
+const SPLIT_LANES = new Set(["childcare", "missed", "responsibility"]);
+const SUB_ORDER = ["mother", "father", "shared", "unclear"];
+const SUB_LABEL = {
+  mother: "Mother",
+  father: "Father",
+  shared: "Shared",
+  unclear: "Unclear",
+};
 
 const PARENT_MARKER = {
   mother: "#6366f1",
@@ -45,10 +58,18 @@ function parseDate(s) {
  * title, and `ref` — the source text/email ID. Communication gaps are spans.
  */
 function extractEvents(report, refed) {
-  const point = (e, color, title) => {
+  // `party` drives the per-parent sub-lanes. Missed visits only carry an
+  // attribution on reports generated after MissedVisit gained that field.
+  const point = (e, color, title, party) => {
     const date = parseDate(e.date);
     if (!date) return null;
-    return { date, color, title, ref: sourceRef(e.quote, e.date, refed) };
+    return {
+      date,
+      color,
+      title,
+      party: party || null,
+      ref: sourceRef(e.quote, e.date, refed),
+    };
   };
 
   const childcare = (report.childcare_events || [])
@@ -57,13 +78,19 @@ function extractEvents(report, refed) {
         e,
         PARENT_MARKER[e.parent] ?? PARENT_MARKER.unclear,
         `${e.date} · with ${e.parent} — ${e.description}`,
+        e.parent,
       ),
     )
     .filter(Boolean);
 
   const missed = (report.missed_or_cancelled || [])
     .map((e) =>
-      point(e, "#e11d48", `${e.date} · ${e.kind.replace(/_/g, " ")} — ${e.description}`),
+      point(
+        e,
+        "#e11d48",
+        `${e.date} · ${e.kind.replace(/_/g, " ")} — ${e.description}`,
+        e.responsible_party,
+      ),
     )
     .filter(Boolean);
 
@@ -73,6 +100,7 @@ function extractEvents(report, refed) {
         e,
         "#0ea5e9",
         `${e.date} · ${e.category.replace(/_/g, " ")} (${e.responsible_party}) — ${e.description}`,
+        e.responsible_party,
       ),
     )
     .filter(Boolean);
@@ -132,6 +160,17 @@ export function buildYearlyTimelineModels(report, transcript) {
     thirdparty: events.thirdparty,
   };
 
+  // Sub-lane plan, computed once from ALL events so the lanes line up across
+  // every year. A lane only splits when its events actually carry a parent
+  // attribution — otherwise splitting would just relabel everything "Unclear".
+  const subPlan = {};
+  for (const lane of TIMELINE_LANES) {
+    if (!SPLIT_LANES.has(lane.key)) continue;
+    const evts = byKey[lane.key] || [];
+    const present = SUB_ORDER.filter((p) => evts.some((e) => e.party === p));
+    if (present.some((p) => p !== "unclear")) subPlan[lane.key] = present;
+  }
+
   const models = years.map((year) => {
     const start = new Date(year, 0, 1);
     const end = new Date(year, 11, 31, 23, 59, 59);
@@ -140,7 +179,14 @@ export function buildYearlyTimelineModels(report, transcript) {
       Math.max(0, Math.min(1, (d.getTime() - start.getTime()) / span));
     const inYear = (d) => d.getFullYear() === year;
 
-    const lanes = TIMELINE_LANES.map((lane) => {
+    const toPoint = (e) => ({
+      frac: frac(e.date),
+      color: e.color,
+      title: e.ref ? `${e.ref} · ${e.title}` : e.title,
+      ref: e.ref,
+    });
+
+    const lanes = TIMELINE_LANES.flatMap((lane) => {
       if (lane.key === "gap") {
         // A gap straddling a year boundary is clipped into each year it covers.
         const spans = events.gaps
@@ -152,17 +198,32 @@ export function buildYearlyTimelineModels(report, transcript) {
             endFrac: frac(g.end > end ? end : g.end),
             title: g.title,
           }));
-        return { ...lane, points: [], spans, count: spans.length };
+        return [
+          { ...lane, baseKey: lane.key, points: [], spans, count: spans.length },
+        ];
       }
-      const points = (byKey[lane.key] || [])
-        .filter((e) => inYear(e.date))
-        .map((e) => ({
-          frac: frac(e.date),
-          color: e.color,
-          title: e.ref ? `${e.ref} · ${e.title}` : e.title,
-          ref: e.ref,
-        }));
-      return { ...lane, points, spans: [], count: points.length };
+      const all = (byKey[lane.key] || []).filter((e) => inYear(e.date));
+      const plan = subPlan[lane.key];
+      if (!plan) {
+        const points = all.map(toPoint);
+        return [
+          { ...lane, baseKey: lane.key, points, spans: [], count: points.length },
+        ];
+      }
+      // One sub-swim-lane per parent, so the chart shows who did what.
+      return plan.map((p) => {
+        const points = all.filter((e) => e.party === p).map(toPoint);
+        return {
+          ...lane,
+          key: `${lane.key}:${p}`,
+          baseKey: lane.key,
+          label: `${lane.short || lane.label} · ${SUB_LABEL[p]}`,
+          color: PARENT_MARKER[p] || lane.color,
+          points,
+          spans: [],
+          count: points.length,
+        };
+      });
     });
 
     // Twelve month gridlines — one per month, plus a final Dec-31 boundary.
