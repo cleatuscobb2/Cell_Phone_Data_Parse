@@ -44,7 +44,6 @@ import {
   FORM_EVIDENCE,
   EVIDENCE_LABELS,
 } from "./custodyForms.js";
-import { buildSca106Worksheet } from "./scaFc106.js";
 
 const usd = (n) =>
   `$${Number(n || 0).toLocaleString("en-US", {
@@ -190,6 +189,32 @@ function Stat({ label, value, color }) {
       </div>
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
     </div>
+  );
+}
+
+/** Bar-end label for the themes chart: total + mother/father share. */
+function ThemeCountLabel({ x, y, width, height, index, data }) {
+  const row = data[index] || {};
+  const mf = (row.mother || 0) + (row.father || 0);
+  const mPct = mf > 0 ? Math.round(((row.mother || 0) / mf) * 100) : 0;
+  return (
+    <text
+      x={x + width + 6}
+      y={y + height / 2}
+      dominantBaseline="central"
+      fontSize={11}
+      fontWeight={600}
+    >
+      <tspan fill="#334155">{row.total ?? 0}</tspan>
+      {mf > 0 ? (
+        <>
+          <tspan fill="#cbd5e1"> · </tspan>
+          <tspan fill={PARENT_COLORS.mother}>{mPct}%</tspan>
+          <tspan fill="#cbd5e1">/</tspan>
+          <tspan fill={PARENT_COLORS.father}>{100 - mPct}%</tspan>
+        </>
+      ) : null}
+    </text>
   );
 }
 
@@ -359,7 +384,12 @@ export default function CustodyReport({ data }) {
     radarData,
     respThemes,
     medical,
+    medSummary,
+    care,
+    thirdParty,
     findings,
+    sca106,
+    scaNeedsAttribution,
   } = buildReportInsights(data);
   const finPayerColor =
     finSolePayer === "father" ? PARENT_COLORS.father : PARENT_COLORS.mother;
@@ -368,10 +398,6 @@ export default function CustodyReport({ data }) {
   // WV SCA-FC-106 Financial Statement worksheet — child-related expense
   // averages by category, plus optional % of income. Only renders when WV
   // is the filing state and there's something to populate.
-  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
-  const sca106 = isWV
-    ? buildSca106Worksheet(expensesRefed, cb, meta.financial_inputs || {})
-    : null;
 
   // WV filing-form packet — derived from the intake answers echoed in meta.
   const caseProfile = meta.case_profile || {};
@@ -563,9 +589,13 @@ export default function CustodyReport({ data }) {
 
       <Panel
         title="Event Timeline"
-        subtitle="One chart per year with month gridlines — toggle lanes to filter"
+        subtitle="Instances per month by parent, with trend, gaps and milestones — one chart per year"
       >
-        <Timeline report={report} transcript={data.transcript} />
+        <Timeline
+          report={report}
+          transcript={data.transcript}
+          userRole={meta.user_role}
+        />
       </Panel>
 
       {/* Custody Split, then Care Pattern full-width directly underneath —
@@ -596,6 +626,55 @@ export default function CustodyReport({ data }) {
               />
             </BarChart>
           </ResponsiveContainer>
+        )}
+        {care.total > 0 && (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Total childcare instances" value={care.total} />
+              <Stat
+                label={`With ${meta.user_role}`}
+                value={care.byParty.mother}
+                color={PARENT_COLORS.mother}
+              />
+              <Stat
+                label="With father"
+                value={care.byParty.father}
+                color={PARENT_COLORS.father}
+              />
+              <Stat
+                label="Busiest year"
+                value={care.busiest ? `${care.busiest.year} (${care.busiest.total})` : "—"}
+              />
+            </div>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[380px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="py-1 text-left font-semibold">Year</th>
+                    <th className="py-1 text-right font-semibold">Total</th>
+                    <th className="py-1 text-right font-semibold" style={{ color: PARENT_COLORS.mother }}>
+                      {meta.user_role}
+                    </th>
+                    <th className="py-1 text-right font-semibold" style={{ color: PARENT_COLORS.father }}>
+                      Father
+                    </th>
+                    <th className="py-1 text-right font-semibold">Shared</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {care.byYear.map((y) => (
+                    <tr key={y.year} className="border-b border-slate-50">
+                      <td className="py-1 text-slate-700">{y.year}</td>
+                      <td className="py-1 text-right text-slate-800">{y.total}</td>
+                      <td className="py-1 text-right" style={{ color: PARENT_COLORS.mother }}>{y.mother}</td>
+                      <td className="py-1 text-right" style={{ color: PARENT_COLORS.father }}>{y.father}</td>
+                      <td className="py-1 text-right text-slate-500">{y.shared}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Panel>
 
@@ -857,7 +936,7 @@ export default function CustodyReport({ data }) {
             width="100%"
             height={Math.max(200, respThemes.length * 26 + 52)}
           >
-            <BarChart data={respThemes} layout="vertical" barCategoryGap="22%">
+            <BarChart data={respThemes} layout="vertical" barCategoryGap="22%" margin={{ right: 90 }}>
               <CartesianGrid {...GRID} horizontal={false} />
               <XAxis {...AXIS} type="number" allowDecimals={false} />
               <YAxis
@@ -879,7 +958,13 @@ export default function CustodyReport({ data }) {
                 name="Unclear"
                 barSize={14}
                 radius={[0, 3, 3, 0]}
-              />
+              >
+                <LabelList
+                  content={(props) => (
+                    <ThemeCountLabel {...props} data={respThemes} />
+                  )}
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
           <div className="mt-4 space-y-3">
@@ -926,65 +1011,72 @@ export default function CustodyReport({ data }) {
               : `${medical.rows.length} on record — who planned it, who booked it, who took the child, and who paid`
           }
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500">
-                  <th className="py-1 text-left font-semibold">Date</th>
-                  <th className="py-1 text-left font-semibold">Child</th>
-                  <th className="py-1 text-left font-semibold">Type</th>
-                  <th className="py-1 text-left font-semibold">Provider</th>
-                  <th className="py-1 text-left font-semibold">
-                    {medical.derived ? "Handled by" : "Planned"}
-                  </th>
-                  {!medical.derived && (
-                    <th className="py-1 text-left font-semibold">Scheduled</th>
-                  )}
-                  {!medical.derived && (
-                    <th className="py-1 text-left font-semibold">Took</th>
-                  )}
-                  <th className="py-1 text-left font-semibold">Paid</th>
-                  <th className="py-1 text-right font-semibold">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {medical.rows.map((a, i) => (
-                  <tr key={i} className="border-b border-slate-50 align-top">
-                    <td className="py-1 whitespace-nowrap text-slate-700">
-                      {a.date || "—"}
-                    </td>
-                    <td className="py-1 text-slate-700">{a.child || "—"}</td>
-                    <td className="py-1 text-slate-700">
-                      {a.appointment_type || "—"}
-                    </td>
-                    <td className="py-1 text-slate-700">{a.provider || "—"}</td>
-                    <td className="py-1">
-                      <PartyText
-                        party={medical.derived ? a.handled_by : a.planned_by}
-                        role={meta.user_role}
-                      />
-                    </td>
-                    {!medical.derived && (
-                      <td className="py-1">
-                        <PartyText party={a.scheduled_by} role={meta.user_role} />
-                      </td>
-                    )}
-                    {!medical.derived && (
-                      <td className="py-1">
-                        <PartyText party={a.taken_by} role={meta.user_role} />
-                      </td>
-                    )}
-                    <td className="py-1">
-                      <PartyText party={a.paid_by} role={meta.user_role} />
-                    </td>
-                    <td className="py-1 text-right text-slate-700">
-                      {a.amount != null && a.amount > 0 ? usd(a.amount) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Appointments" value={medSummary.total} />
+            <Stat
+              label={medical.derived ? `Handled by ${meta.user_role}` : `Taken by ${meta.user_role}`}
+              value={
+                medical.derived
+                  ? medSummary.roleTally.handled?.mother ?? 0
+                  : medSummary.roleTally.took?.mother ?? 0
+              }
+              color={PARENT_COLORS.mother}
+            />
+            <Stat
+              label={medical.derived ? "Handled by father" : "Taken by father"}
+              value={
+                medical.derived
+                  ? medSummary.roleTally.handled?.father ?? 0
+                  : medSummary.roleTally.took?.father ?? 0
+              }
+              color={PARENT_COLORS.father}
+            />
+            <Stat
+              label="Documented spend"
+              value={medSummary.spend > 0 ? usd(medSummary.spend) : "—"}
+            />
           </div>
+          <ChartCaption>
+            Appointments by type — split by the acting parent
+            {medSummary.byChild.some((c) => c.child !== "Unspecified")
+              ? " · children: " +
+                medSummary.byChild.map((c) => `${c.child} (${c.count})`).join(", ")
+              : ""}
+          </ChartCaption>
+          <ResponsiveContainer
+            width="100%"
+            height={Math.max(140, medSummary.byType.length * 30 + 50)}
+          >
+            <BarChart
+              data={medSummary.byType}
+              layout="vertical"
+              barCategoryGap="24%"
+              margin={{ right: 40 }}
+            >
+              <CartesianGrid {...GRID} vertical horizontal={false} />
+              <XAxis {...AXIS} type="number" allowDecimals={false} />
+              <YAxis
+                {...AXIS}
+                type="category"
+                dataKey="type"
+                width={150}
+                tick={{ fontSize: 10, fill: "#475569" }}
+              />
+              <Tooltip {...TOOLTIP} />
+              <Legend wrapperStyle={LEGEND} />
+              <Bar dataKey="mother" stackId="m" fill={PARENT_COLORS.mother} name={meta.user_role} barSize={14} />
+              <Bar dataKey="father" stackId="m" fill={PARENT_COLORS.father} name="Father" barSize={14} />
+              <Bar dataKey="unclear" stackId="m" fill={PARENT_COLORS.unclear} name="Unclear" barSize={14} radius={[0, 3, 3, 0]}>
+                <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: "#334155", fontWeight: 600 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-2 text-xs text-slate-400">
+            The full register — date, child, provider, and who planned,
+            scheduled, took and paid per appointment — is the &ldquo;Medical
+            Appointments&rdquo; tab in the evidence workbook, with a
+            role-by-parent cross-tab in &ldquo;Pivot - Medical Roles&rdquo;.
+          </p>
         </Panel>
       )}
 
@@ -1146,7 +1238,9 @@ export default function CustodyReport({ data }) {
           {fin.cumulative.length > 1 && (
             <div className="mb-6">
               <ChartCaption>
-                Cumulative contribution over time — running total per parent
+                {finSolePayer
+                  ? `Cumulative contribution over time — ${finPayerLabel}'s running total`
+                  : "Cumulative contribution over time — running total per parent"}
               </ChartCaption>
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart
@@ -1163,20 +1257,22 @@ export default function CustodyReport({ data }) {
                   <Legend wrapperStyle={LEGEND} />
                   <Line
                     type="monotone"
-                    dataKey="mother"
-                    stroke={PARENT_COLORS.mother}
+                    dataKey={finSolePayer || "mother"}
+                    stroke={finPayerColor}
                     strokeWidth={2}
                     dot={false}
-                    name={`With ${meta.user_role}`}
+                    name={finSolePayer ? `Paid by ${finPayerLabel}` : `With ${meta.user_role}`}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="father"
-                    stroke={PARENT_COLORS.father}
-                    strokeWidth={2}
-                    dot={false}
-                    name="With father"
-                  />
+                  {!finSolePayer && (
+                    <Line
+                      type="monotone"
+                      dataKey="father"
+                      stroke={PARENT_COLORS.father}
+                      strokeWidth={2}
+                      dot={false}
+                      name="With father"
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -1225,6 +1321,23 @@ export default function CustodyReport({ data }) {
             to complete on the official form. These are the figures that are
             hard to compute by hand.
           </p>
+          {finSolePayer && (
+            <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              Every attributed payment on file is {finPayerLabel}&rsquo;s, so
+              unattributed payments are credited to {finPayerLabel} as well —
+              the {meta.user_role} / father share columns below are complete
+              and ready to transfer to the form.
+            </p>
+          )}
+          {scaNeedsAttribution && (
+            <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              The {meta.user_role} / father share columns show $0 because no
+              payment could be attributed to a parent. To fill them: add the
+              card-lookup mapping (card last-4 → parent) before running, or
+              upload payment-app / bank exports that name the payer. The
+              totals and monthly averages are still correct.
+            </p>
+          )}
           <div className="mb-3 overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead className="border-b border-slate-200">
@@ -1353,22 +1466,77 @@ export default function CustodyReport({ data }) {
         title="Third-Party Statements"
         subtitle="Messages from others that corroborate caregiving"
       >
-        {report.third_party_statements.length === 0 ? (
+        {thirdParty.total === 0 ? (
           <EmptyNote>No third-party statements were identified.</EmptyNote>
         ) : (
-          <div className="space-y-1.5">
-            {report.third_party_statements.map((t, i) => (
-              <EvidenceRow
-                key={i}
-                date={t.date}
-                channel={t.channel}
-                badge={<Badge text={t.source} className="bg-slate-100 text-slate-600 ring-slate-200" />}
-                description={t.description}
-                quote={t.quote}
-                sender={t.source}
+          <>
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Stat label="Statements" value={thirdParty.total} />
+              <Stat label="Distinct sources" value={thirdParty.sources} />
+              <Stat
+                label="Most frequent"
+                value={thirdParty.bySource[0]?.source || "—"}
               />
-            ))}
-          </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <ChartCaption>Statements per source</ChartCaption>
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(120, Math.min(8, thirdParty.bySource.length) * 30 + 40)}
+                >
+                  <BarChart
+                    data={thirdParty.bySource.slice(0, 8)}
+                    layout="vertical"
+                    margin={{ right: 30 }}
+                  >
+                    <CartesianGrid {...GRID} vertical horizontal={false} />
+                    <XAxis {...AXIS} type="number" allowDecimals={false} />
+                    <YAxis
+                      {...AXIS}
+                      type="category"
+                      dataKey="source"
+                      width={150}
+                      tick={{ fontSize: 10, fill: "#475569" }}
+                    />
+                    <Tooltip {...TOOLTIP} />
+                    <Bar dataKey="count" fill="#64748b" barSize={14} radius={[0, 3, 3, 0]}>
+                      <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: "#334155" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div>
+                <ChartCaption>Statements per year</ChartCaption>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={thirdParty.byYear} barCategoryGap="30%">
+                    <CartesianGrid {...GRID} />
+                    <XAxis {...AXIS} dataKey="year" />
+                    <YAxis {...AXIS} allowDecimals={false} width={26} />
+                    <Tooltip {...TOOLTIP} />
+                    <Bar dataKey="count" fill="#64748b" radius={[3, 3, 0, 0]}>
+                      <LabelList dataKey="count" position="top" style={{ fontSize: 11, fill: "#334155" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            {thirdParty.highlights.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <ChartCaption>Highlights — most recent statements</ChartCaption>
+                {thirdParty.highlights.map((t, i) => (
+                  <p key={i} className="text-xs italic text-slate-500">
+                    {t.source}
+                    {t.date ? ` (${t.date})` : ""}: &ldquo;{t.quote}&rdquo;
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-400">
+              Every statement, with its verbatim quote and source reference, is
+              in the evidence workbook&rsquo;s Third-Party tab.
+            </p>
+          </>
         )}
       </Panel>
 

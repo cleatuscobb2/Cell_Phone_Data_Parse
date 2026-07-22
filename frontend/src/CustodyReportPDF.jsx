@@ -35,7 +35,6 @@ import {
   INTAKE_QUESTIONS,
 } from "./custodyForms.js";
 import { buildEvidenceRefs } from "./messageRefs.js";
-import { buildSca106Worksheet } from "./scaFc106.js";
 
 const usd = (n) =>
   `$${Number(n || 0).toLocaleString("en-US", {
@@ -965,7 +964,12 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     radarData,
     respThemes,
     medical,
+    medSummary,
+    care,
+    thirdParty,
     findings,
+    sca106,
+    scaNeedsAttribution,
   } = buildReportInsights(data);
 
   const finPayerColor =
@@ -997,10 +1001,6 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
       : [{ label: "Years affected", value: missed.byYear.length, color: null }]),
   ];
 
-  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
-  const sca106 = isWV
-    ? buildSca106Worksheet(expenses || [], cb, meta.financial_inputs || {})
-    : null;
   const RADAR_SERIES = [
     { key: "mother", color: PDF_COLORS.mother, label: `With ${meta.user_role}` },
     { key: "father", color: PDF_COLORS.father, label: "With father" },
@@ -1168,6 +1168,55 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           Care pattern over time — childcare instances per month
         </Text>
         <PdfBarChart data={carePattern} labelKey="month" series={CARE_SERIES} />
+        {care.total > 0 ? (
+          <View wrap={false}>
+            <View style={styles.statRow}>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{care.total}</Text>
+                <Text style={styles.statLabel}>Childcare instances</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={[styles.statValue, { color: PDF_COLORS.mother }]}>
+                  {care.byParty.mother}
+                </Text>
+                <Text style={styles.statLabel}>With {meta.user_role}</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={[styles.statValue, { color: PDF_COLORS.father }]}>
+                  {care.byParty.father}
+                </Text>
+                <Text style={styles.statLabel}>With father</Text>
+              </View>
+              <View style={[styles.stat, { marginRight: 0 }]}>
+                <Text style={styles.statValue}>
+                  {care.busiest ? `${care.busiest.year} (${care.busiest.total})` : "—"}
+                </Text>
+                <Text style={styles.statLabel}>Busiest year</Text>
+              </View>
+            </View>
+            <Text style={[styles.caption, { marginTop: 4 }]}>By year and parent</Text>
+            <View style={medStyles.headRow}>
+              <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Year</Text>
+              <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Total</Text>
+              <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.mother }]}>
+                {meta.user_role}
+              </Text>
+              <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.father }]}>
+                Father
+              </Text>
+              <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Shared</Text>
+            </View>
+            {care.byYear.map((y) => (
+              <View key={y.year} style={medStyles.row}>
+                <Text style={[medStyles.cell, { width: 60 }]}>{y.year}</Text>
+                <Text style={[medStyles.cell, { width: 60 }]}>{y.total}</Text>
+                <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.mother }]}>{y.mother}</Text>
+                <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.father }]}>{y.father}</Text>
+                <Text style={[medStyles.cell, { width: 60 }]}>{y.shared}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <Text style={styles.h2}>Event Timeline</Text>
         {timeline ? (
@@ -1179,6 +1228,40 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                 <PdfTimelineYear model={ym} plotW={timelinePlotW} />
               </View>
             ))}
+            <View wrap={false} style={{ marginTop: 6 }}>
+              <Text style={styles.caption}>Summary by year</Text>
+              <View style={medStyles.headRow}>
+                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Year</Text>
+                <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.mother }]}>
+                  {meta.user_role}
+                </Text>
+                <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.father }]}>
+                  Father
+                </Text>
+                <Text style={[medStyles.cell, { width: 80 }, medStyles.head]}>Third-party</Text>
+                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Gaps</Text>
+                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Total</Text>
+              </View>
+              {timeline.years.map((y) => {
+                const g = Object.fromEntries(y.groups.map((gr) => [gr.key, gr]));
+                return (
+                  <View key={y.year} style={medStyles.row}>
+                    <Text style={[medStyles.cell, { width: 60 }]}>{y.year}</Text>
+                    <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.mother }]}>
+                      {g.mother?.total ?? 0}
+                    </Text>
+                    <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.father }]}>
+                      {g.father?.total ?? 0}
+                    </Text>
+                    <Text style={[medStyles.cell, { width: 80 }]}>{g.thirdparty?.total ?? 0}</Text>
+                    <Text style={[medStyles.cell, { width: 60 }]}>{g.gap?.total ?? 0}</Text>
+                    <Text style={[medStyles.cell, { width: 60, fontFamily: "Helvetica-Bold" }]}>
+                      {y.groups.reduce((t, gr) => t + gr.total, 0)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
               One page per year, split into a plot per actor — each parent,
               third parties, and communication gaps. The line above each strip
@@ -1363,13 +1446,19 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
               <View key={t.key} style={{ marginTop: 5 }} wrap={false}>
                 <Text style={{ fontFamily: "Helvetica-Bold" }}>
                   {t.label}
-                  {" — "}
+                  {` — ${t.total} total · `}
                   <Text style={{ color: PDF_COLORS.mother }}>
                     {meta.user_role} {t.mother}
+                    {t.mother + t.father > 0
+                      ? ` (${Math.round((t.mother / (t.mother + t.father)) * 100)}%)`
+                      : ""}
                   </Text>
                   {" · "}
                   <Text style={{ color: PDF_COLORS.father }}>
                     father {t.father}
+                    {t.mother + t.father > 0
+                      ? ` (${100 - Math.round((t.mother / (t.mother + t.father)) * 100)}%)`
+                      : ""}
                   </Text>
                   {t.shared ? ` · shared ${t.shared}` : ""}
                   {t.unclear ? ` · unclear ${t.unclear}` : ""}
@@ -1400,60 +1489,61 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                 ? " · this report predates per-role capture, so it shows the one party each entry names as handling it — re-run the analysis to split planned / scheduled / took"
                 : " · who planned it, who booked it, who took the child, and who paid"}
             </Text>
-            <View style={medStyles.headRow}>
-              <Text style={[medStyles.cell, medStyles.date, medStyles.head]}>Date</Text>
-              <Text style={[medStyles.cell, medStyles.child, medStyles.head]}>Child</Text>
-              <Text style={[medStyles.cell, medStyles.type, medStyles.head]}>Type</Text>
-              <Text style={[medStyles.cell, medStyles.prov, medStyles.head]}>Provider</Text>
-              {medical.derived ? (
-                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Handled by</Text>
-              ) : (
-                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Planned</Text>
-              )}
-              {!medical.derived ? (
-                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Scheduled</Text>
-              ) : null}
-              {!medical.derived ? (
-                <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Took</Text>
-              ) : null}
-              <Text style={[medStyles.cell, medStyles.role, medStyles.head]}>Paid</Text>
-              <Text style={[medStyles.cell, medStyles.amt, medStyles.head]}>Amount</Text>
-            </View>
-            {medical.rows.map((a, i) => (
-              <View key={i} style={medStyles.row} wrap={false}>
-                <Text style={[medStyles.cell, medStyles.date]}>{a.date || "—"}</Text>
-                <Text style={[medStyles.cell, medStyles.child]}>{a.child || "—"}</Text>
-                <Text style={[medStyles.cell, medStyles.type]}>
-                  {a.appointment_type || "—"}
+            <View style={styles.statRow} wrap={false}>
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{medSummary.total}</Text>
+                <Text style={styles.statLabel}>Appointments</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={[styles.statValue, { color: PDF_COLORS.mother }]}>
+                  {medical.derived
+                    ? medSummary.roleTally.handled?.mother ?? 0
+                    : medSummary.roleTally.took?.mother ?? 0}
                 </Text>
-                <Text style={[medStyles.cell, medStyles.prov]}>{a.provider || "—"}</Text>
-                <Text
-                  style={[
-                    medStyles.cell,
-                    medStyles.role,
-                    partyStyle(medical.derived ? a.handled_by : a.planned_by),
-                  ]}
-                >
-                  {partyText(medical.derived ? a.handled_by : a.planned_by, meta)}
-                </Text>
-                {!medical.derived ? (
-                  <Text style={[medStyles.cell, medStyles.role, partyStyle(a.scheduled_by)]}>
-                    {partyText(a.scheduled_by, meta)}
-                  </Text>
-                ) : null}
-                {!medical.derived ? (
-                  <Text style={[medStyles.cell, medStyles.role, partyStyle(a.taken_by)]}>
-                    {partyText(a.taken_by, meta)}
-                  </Text>
-                ) : null}
-                <Text style={[medStyles.cell, medStyles.role, partyStyle(a.paid_by)]}>
-                  {partyText(a.paid_by, meta)}
-                </Text>
-                <Text style={[medStyles.cell, medStyles.amt]}>
-                  {a.amount != null && a.amount > 0 ? usd(a.amount) : "—"}
+                <Text style={styles.statLabel}>
+                  {medical.derived ? "Handled by" : "Taken by"} {meta.user_role}
                 </Text>
               </View>
-            ))}
+              <View style={styles.stat}>
+                <Text style={[styles.statValue, { color: PDF_COLORS.father }]}>
+                  {medical.derived
+                    ? medSummary.roleTally.handled?.father ?? 0
+                    : medSummary.roleTally.took?.father ?? 0}
+                </Text>
+                <Text style={styles.statLabel}>
+                  {medical.derived ? "Handled by" : "Taken by"} father
+                </Text>
+              </View>
+              <View style={[styles.stat, { marginRight: 0 }]}>
+                <Text style={styles.statValue}>
+                  {medSummary.spend > 0 ? usd(medSummary.spend) : "—"}
+                </Text>
+                <Text style={styles.statLabel}>Documented spend</Text>
+              </View>
+            </View>
+            <Text style={[styles.caption, { marginTop: 4 }]}>
+              By type — split by the acting parent
+              {medSummary.byChild.some((c) => c.child !== "Unspecified")
+                ? " · children: " +
+                  medSummary.byChild.map((c) => `${c.child} (${c.count})`).join(", ")
+                : ""}
+            </Text>
+            <PdfHBar
+              data={medSummary.byType.map((t) => ({
+                type: t.type,
+                mother: t.mother,
+                father: t.father,
+                shared: t.shared,
+                unclear: t.unclear,
+              }))}
+              labelKey="type"
+              series={RESP_SERIES}
+            />
+            <Text style={[styles.caption, { color: "#94a3b8" }]}>
+              The full register — date, child, provider, and who planned,
+              scheduled, took and paid per appointment — is the &ldquo;Medical
+              Appointments&rdquo; tab of the evidence workbook.
+            </Text>
           </View>
         ) : null}
 
@@ -1653,6 +1743,22 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
               monthly expenses stay for you / your attorney to complete on
               the official form.
             </Text>
+            {finSolePayer ? (
+              <Text style={[styles.caption, { color: "#059669" }]}>
+                Every attributed payment on file is {finPayerLabel}&rsquo;s, so
+                unattributed payments are credited to {finPayerLabel} as well —
+                the share columns are complete and ready to transfer to the
+                form.
+              </Text>
+            ) : null}
+            {scaNeedsAttribution ? (
+              <Text style={[styles.caption, { color: "#b45309" }]}>
+                The parent share columns show $0 because no payment could be
+                attributed: add the card-lookup mapping (card last-4 → parent)
+                or upload payer-named exports, then re-run. Totals and monthly
+                averages are still correct.
+              </Text>
+            ) : null}
             {/* Column headers */}
             <View
               style={{
@@ -1828,22 +1934,41 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         )}
 
-        <Section
-          title="Third-Party Statements"
-          items={report.third_party_statements}
-          empty="No third-party statements were identified."
-          render={(t) => (
-            <EvidenceItem
-              date={t.date}
-              channel={t.channel}
-              badge={t.source}
-              description={t.description}
-              quote={t.quote}
-              sender={t.source}
-              sourceRef={link(t)}
-            />
+        <View>
+          <Text style={styles.h2}>Third-Party Statements</Text>
+          {thirdParty.total === 0 ? (
+            <Text style={styles.empty}>
+              No third-party statements were identified.
+            </Text>
+          ) : (
+            <View>
+              <Text style={styles.caption}>
+                {thirdParty.total} statement{thirdParty.total === 1 ? "" : "s"}
+                {" from "}
+                {thirdParty.sources} source{thirdParty.sources === 1 ? "" : "s"}
+                {thirdParty.byYear.length > 1
+                  ? " · by year: " +
+                    thirdParty.byYear.map((y) => `${y.year} (${y.count})`).join(", ")
+                  : ""}
+                {" · every statement is in the workbook's Third-Party tab"}
+              </Text>
+              <PdfHBar
+                data={thirdParty.bySource.slice(0, 8).map((r) => ({
+                  source: r.source,
+                  count: r.count,
+                }))}
+                labelKey="source"
+                series={[{ key: "count", color: "#64748b", label: "Statements" }]}
+              />
+              {thirdParty.highlights.map((t, i) => (
+                <Text key={i} style={styles.quote}>
+                  {t.source}
+                  {t.date ? ` (${t.date})` : ""}: &ldquo;{t.quote}&rdquo;
+                </Text>
+              ))}
+            </View>
           )}
-        />
+        </View>
 
         {/* "Suggestions for Building the Case" is intentionally omitted — the
             full list is a tab in the evidence workbook. */}

@@ -28,7 +28,7 @@
  */
 
 import ExcelJS from "exceljs";
-import { medicalAppointments } from "./reportInsights.js";
+import { buildReportInsights, medicalAppointments } from "./reportInsights.js";
 import {
   RESPONSIBILITY_CATEGORIES,
   RESPONSIBILITY_LABELS,
@@ -45,7 +45,6 @@ import {
   buildFinancialSummary,
   buildFinancialCrossValidation,
 } from "./financial.js";
-import { buildSca106Worksheet } from "./scaFc106.js";
 
 const CHANNEL_LABEL = {
   email: "Email",
@@ -556,10 +555,8 @@ export function buildCustodyWorkbook(data) {
     : [];
 
   // SCA-FC-106 worksheet — only when WV is the filing state.
-  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
-  const sca106 = isWV
-    ? buildSca106Worksheet(expenses, cb, meta.financial_inputs || {})
-    : null;
+  // Shared insights — sole-payer-aware SCA-FC-106 (matches app + PDF).
+  const sca106 = buildReportInsights(data).sca106;
 
   buildSummarySheet(wb, meta, cb, report, fin);
 

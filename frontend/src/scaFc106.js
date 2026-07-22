@@ -76,8 +76,22 @@ export function buildSca106Worksheet(
   expenses = [],
   custodyBreakdown = {},
   inputs = {},
+  { solePayer = null } = {},
 ) {
   if (!expenses.length && !inputs.monthly_gross_income) return null;
+
+  // When effectively every attributed document belongs to one parent (the
+  // sole-payer signal from reportInsights), unattributed payments are folded
+  // into that parent so the form's % split can actually be completed —
+  // otherwise "unclear" payers leave mother+father at $0 and the split
+  // unfillable even though the user knows who paid.
+  if (solePayer === "mother" || solePayer === "father") {
+    expenses = expenses.map((e) =>
+      e.payer === "unclear" || e.payer === "shared"
+        ? { ...e, payer: solePayer }
+        : e,
+    );
+  }
 
   const dates = expenses
     .map((e) => parseISO(e.date))

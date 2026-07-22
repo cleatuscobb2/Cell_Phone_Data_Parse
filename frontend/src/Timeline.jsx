@@ -1,175 +1,156 @@
 /**
- * Timeline — an interactive swim-lane timeline of custody-relevant events.
+ * Timeline — instances over time, readable at a glance.
  *
- * The history is broken into one chart per calendar year, each spanning a
- * full Jan–Dec with a vertical gridline per month, so seasonal patterns line
- * up across years. One lane per category; point events are markers
- * (missed/cancelled visits use diamond "milestone" markers) and
- * communication gaps are spans. Lanes can be toggled to isolate a pattern.
+ * The old dot-per-event swim lanes made patterns hard to read at volume: fifty
+ * overlapping markers say less than "9 in March". This view shows, per year,
+ * each actor's monthly instance counts as bars (mother / father / third-party)
+ * with communication gaps as shaded month bands behind them, a count label on
+ * every bar, milestone chips from the free-text "Other" entries, and a
+ * per-year summary table beneath — trend, volume and gaps in one look.
+ * Row-level detail stays in the evidence workbook.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  LabelList,
+  Legend,
+  ReferenceArea,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { buildYearlyTimelineModels } from "./timeline.js";
 
-// viewBox coordinate space — the SVG scales to its container width.
-const W = 1000;
-const LABEL_W = 172;
-const PLOT_X0 = LABEL_W;
-const PLOT_X1 = 985;
-const PLOT_W = PLOT_X1 - PLOT_X0;
-const AXIS_H = 24;
-const LANE_H = 44;
+const COLORS = {
+  mother: "#6366f1",
+  father: "#f97316",
+  thirdparty: "#64748b",
+  gap: "#f59e0b",
+};
 
-const xOf = (frac) => PLOT_X0 + Math.max(0, Math.min(1, frac)) * PLOT_W;
+const AXIS = {
+  tick: { fontSize: 11, fill: "#64748b" },
+  tickLine: false,
+  axisLine: { stroke: "#e2e8f0" },
+};
 
-function Marker({ lane, point }) {
-  const cx = xOf(point.frac);
-  const cy = lane._yMid;
-  // Lanes may be split into per-parent sub-lanes, so match on the base lane.
-  const isMilestone = (lane.baseKey || lane.key) === "missed";
+/** Count label above a bar — hidden for zero so the chart stays clean. */
+function CountLabel({ x, y, width, value, fill }) {
+  if (!value) return null;
   return (
-    <g style={{ cursor: "pointer" }}>
-      <title>{point.title}</title>
-      {isMilestone ? (
-        <polygon
-          points={`${cx},${cy - 7} ${cx + 7},${cy} ${cx},${cy + 7} ${cx - 7},${cy}`}
-          fill={point.color}
-          stroke="#ffffff"
-          strokeWidth={1.5}
-        />
-      ) : (
-        <circle cx={cx} cy={cy} r={6} fill={point.color} stroke="#ffffff" strokeWidth={1.5} />
-      )}
-    </g>
+    <text
+      x={x + width / 2}
+      y={y - 4}
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight={600}
+      fill={fill}
+    >
+      {value}
+    </text>
   );
 }
 
-/** One year's swim-lane chart — a full Jan–Dec span with month gridlines. */
-function YearChart({ model, hidden }) {
-  // The filter chips are per base lane; hiding one hides all its sub-lanes.
-  const visible = model.lanes.filter((l) => !hidden.has(l.baseKey || l.key));
-  visible.forEach((lane, i) => {
-    lane._yTop = AXIS_H + i * LANE_H;
-    lane._yMid = lane._yTop + LANE_H / 2;
-  });
-  const height = AXIS_H + visible.length * LANE_H + 8;
-  const yearTotal = model.lanes.reduce((s, l) => s + l.count, 0);
+function YearChart({ model, userRole }) {
+  const groups = Object.fromEntries(model.groups.map((g) => [g.key, g]));
+  const rows = model.months.map((m, i) => ({
+    month: m,
+    mother: groups.mother?.monthly[i] ?? 0,
+    father: groups.father?.monthly[i] ?? 0,
+    thirdparty: groups.thirdparty?.monthly[i] ?? 0,
+    gap: groups.gap?.monthly[i] ?? 0,
+  }));
+  const yearTotal = model.groups.reduce((s, g) => s + g.total, 0);
+  const gapMonths = rows.filter((r) => r.gap > 0).map((r) => r.month);
 
   return (
-    <div className="mb-4">
-      <div className="mb-1 flex items-baseline gap-2">
+    <div className="mb-6">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-sm font-bold text-slate-700">{model.year}</span>
         <span className="text-xs text-slate-400">
-          {yearTotal} {yearTotal === 1 ? "event" : "events"}
+          {yearTotal} {yearTotal === 1 ? "entry" : "entries"}
         </span>
+        <span className="text-xs font-semibold" style={{ color: COLORS.mother }}>
+          {userRole} {groups.mother?.total ?? 0}
+        </span>
+        <span className="text-xs font-semibold" style={{ color: COLORS.father }}>
+          father {groups.father?.total ?? 0}
+        </span>
+        {groups.thirdparty?.total > 0 && (
+          <span className="text-xs font-semibold" style={{ color: COLORS.thirdparty }}>
+            third-party {groups.thirdparty.total}
+          </span>
+        )}
+        {gapMonths.length > 0 && (
+          <span className="text-xs font-semibold" style={{ color: COLORS.gap }}>
+            gaps: {gapMonths.join(", ")}
+          </span>
+        )}
       </div>
-      {visible.length === 0 ? (
-        <p className="text-sm text-slate-400">All lanes hidden — re-enable one above.</p>
-      ) : (
-        <svg
-          viewBox={`0 0 ${W} ${height}`}
-          width="100%"
-          role="img"
-          aria-label={`Event timeline for ${model.year}`}
-        >
-          {/* Lane bands + labels */}
-          {visible.map((lane, i) => (
-            <g key={lane.key}>
-              <rect
-                x={0}
-                y={lane._yTop}
-                width={W}
-                height={LANE_H}
-                fill={i % 2 === 0 ? "#f8fafc" : "#ffffff"}
-              />
-              <text
-                x={12}
-                y={lane._yMid - 3}
-                fontSize={12}
-                fontWeight={600}
-                fill={lane.color}
-              >
-                {lane.label}
-              </text>
-              <text x={12} y={lane._yMid + 11} fontSize={9} fill="#94a3b8">
-                {lane.count} {lane.count === 1 ? "event" : "events"}
-              </text>
-            </g>
-          ))}
 
-          {/* Month gridlines + labels */}
-          {model.ticks.map((t, i) => (
-            <g key={i}>
-              <line
-                x1={xOf(t.frac)}
-                y1={AXIS_H}
-                x2={xOf(t.frac)}
-                y2={height - 8}
-                stroke="#e2e8f0"
-                strokeWidth={1}
+      <ResponsiveContainer width="100%" height={210}>
+        <BarChart data={rows} barCategoryGap="25%" margin={{ top: 16 }}>
+          <CartesianGrid strokeDasharray="2 4" stroke="#eef2f6" vertical={false} />
+          <XAxis {...AXIS} dataKey="month" interval={0} />
+          <YAxis {...AXIS} allowDecimals={false} width={26} />
+          {/* Communication gaps as shaded month bands behind the bars. */}
+          {rows.map((r) =>
+            r.gap > 0 ? (
+              <ReferenceArea
+                key={r.month}
+                x1={r.month}
+                x2={r.month}
+                fill={COLORS.gap}
+                fillOpacity={0.14}
               />
-              <text
-                x={xOf(t.frac) + 3}
-                y={16}
-                fontSize={9}
-                fill="#94a3b8"
-                textAnchor="start"
-              >
-                {t.label}
-              </text>
-            </g>
-          ))}
-
-          {/* Plot boundary */}
-          <line
-            x1={PLOT_X0}
-            y1={AXIS_H}
-            x2={PLOT_X0}
-            y2={height - 8}
-            stroke="#cbd5e1"
-            strokeWidth={1}
+            ) : null,
+          )}
+          <Tooltip
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+            cursor={{ fill: "rgba(99,102,241,0.06)" }}
           />
+          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
+          <Bar dataKey="mother" name={`With ${userRole}`} fill={COLORS.mother}>
+            <LabelList content={<CountLabel fill={COLORS.mother} />} />
+          </Bar>
+          <Bar dataKey="father" name="With father" fill={COLORS.father}>
+            <LabelList content={<CountLabel fill={COLORS.father} />} />
+          </Bar>
+          {groups.thirdparty?.total > 0 && (
+            <Bar dataKey="thirdparty" name="Third-party" fill={COLORS.thirdparty}>
+              <LabelList content={<CountLabel fill={COLORS.thirdparty} />} />
+            </Bar>
+          )}
+        </BarChart>
+      </ResponsiveContainer>
 
-          {/* Events */}
-          {visible.map((lane) => (
-            <g key={`${lane.key}-events`}>
-              {lane.spans.map((s, j) => {
-                const x = xOf(s.startFrac);
-                const w = Math.max(3, xOf(s.endFrac) - x);
-                return (
-                  <g key={j} style={{ cursor: "pointer" }}>
-                    <title>{s.title}</title>
-                    <rect
-                      x={x}
-                      y={lane._yMid - 7}
-                      width={w}
-                      height={14}
-                      rx={2}
-                      fill={lane.color}
-                      fillOpacity={0.45}
-                      stroke={lane.color}
-                      strokeWidth={1}
-                    />
-                  </g>
-                );
-              })}
-              {lane.points.map((p, j) => (
-                <Marker key={j} lane={lane} point={p} />
-              ))}
-            </g>
+      {model.milestones.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {model.milestones.map((m, i) => (
+            <span
+              key={i}
+              title={m.title}
+              className="rounded-full border px-2 py-0.5 text-xs"
+              style={{ borderColor: m.color, color: m.color }}
+            >
+              {m.label}
+            </span>
           ))}
-        </svg>
+        </div>
       )}
     </div>
   );
 }
 
-export default function Timeline({ report, transcript }) {
+export default function Timeline({ report, transcript, userRole = "mother" }) {
   const data = useMemo(
     () => buildYearlyTimelineModels(report, transcript),
     [report, transcript],
   );
-  const [hidden, setHidden] = useState(() => new Set());
 
   if (!data) {
     return (
@@ -179,46 +160,67 @@ export default function Timeline({ report, transcript }) {
     );
   }
 
-  const toggle = (key) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  // Per-year summary — the trend across the whole record in one table.
+  const summary = data.years.map((y) => {
+    const g = Object.fromEntries(y.groups.map((gr) => [gr.key, gr]));
+    return {
+      year: y.year,
+      mother: g.mother?.total ?? 0,
+      father: g.father?.total ?? 0,
+      thirdparty: g.thirdparty?.total ?? 0,
+      gaps: g.gap?.total ?? 0,
+      total: y.groups.reduce((s, gr) => s + gr.total, 0),
+    };
+  });
 
   return (
     <div>
-      {/* Filter chips — apply across every year */}
-      <div className="mb-3 flex flex-wrap gap-2">
-        {data.laneTotals.map((lane) => {
-          const off = hidden.has(lane.key);
-          return (
-            <button
-              key={lane.key}
-              onClick={() => toggle(lane.key)}
-              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                off
-                  ? "border-slate-200 bg-slate-50 text-slate-400 line-through"
-                  : "border-slate-300 bg-white text-slate-700"
-              }`}
-            >
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: off ? "#cbd5e1" : lane.color }}
-              />
-              {lane.label} ({lane.count})
-            </button>
-          );
-        })}
-      </div>
-
       {data.years.map((model) => (
-        <YearChart key={model.year} model={model} hidden={hidden} />
+        <YearChart key={model.year} model={model} userRole={userRole} />
       ))}
 
-      <p className="mt-1 text-xs text-slate-400">
-        One chart per year · month gridlines mark seasonal patterns · diamonds
-        mark missed or cancelled visits · hover any marker for detail.
+      <div className="mt-2 overflow-x-auto">
+        <p className="mb-1 text-xs font-medium text-slate-500">Summary by year</p>
+        <table className="w-full min-w-[420px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-xs text-slate-500">
+              <th className="py-1 text-left font-semibold">Year</th>
+              <th className="py-1 text-right font-semibold" style={{ color: COLORS.mother }}>
+                {userRole}
+              </th>
+              <th className="py-1 text-right font-semibold" style={{ color: COLORS.father }}>
+                Father
+              </th>
+              <th className="py-1 text-right font-semibold" style={{ color: COLORS.thirdparty }}>
+                Third-party
+              </th>
+              <th className="py-1 text-right font-semibold" style={{ color: COLORS.gap }}>
+                Gaps
+              </th>
+              <th className="py-1 text-right font-semibold">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map((r) => (
+              <tr key={r.year} className="border-b border-slate-50">
+                <td className="py-1 text-slate-700">{r.year}</td>
+                <td className="py-1 text-right" style={{ color: COLORS.mother }}>{r.mother}</td>
+                <td className="py-1 text-right" style={{ color: COLORS.father }}>{r.father}</td>
+                <td className="py-1 text-right" style={{ color: COLORS.thirdparty }}>{r.thirdparty}</td>
+                <td className="py-1 text-right" style={{ color: COLORS.gap }}>{r.gaps}</td>
+                <td className="py-1 text-right font-semibold text-slate-800">{r.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-2 text-xs text-slate-400">
+        Bars are each party&rsquo;s instances per month (childcare, missed and
+        responsibility entries; a shared entry counts for both). Amber bands
+        mark communication-gap months; chips are milestones from the free-text
+        &ldquo;Other&rdquo; entries. Row-level detail is in the evidence
+        workbook.
       </p>
     </div>
   );

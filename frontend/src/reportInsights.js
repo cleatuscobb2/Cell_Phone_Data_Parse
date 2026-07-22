@@ -23,6 +23,7 @@ import {
   buildFinancialCrossValidation,
 } from "./financial.js";
 import { refExpenses } from "./messageRefs.js";
+import { buildSca106Worksheet } from "./scaFc106.js";
 
 export const usd = (n) =>
   `$${Number(n || 0).toLocaleString("en-US", {
@@ -46,21 +47,49 @@ export function buildReportInsights(data) {
   // that parent's receipts were uploaded), the report presents it as their
   // contributions rather than a split implying the other paid nothing.
   const partyTotals = fin.grand_total || {};
-  const finSum = PARTIES.reduce((s, p) => s + (partyTotals[p] || 0), 0);
+  // Sole-payer detection divides by ATTRIBUTED spend only (mother + father +
+  // shared). "Unclear" is the absence of payer evidence, not evidence the
+  // other parent paid — a batch of unattributed bank rows must not defeat the
+  // signal when every payment that IS attributed belongs to one parent.
+  // Shared spend does count against it, since shared implies both paid.
+  const finAttributed =
+    (partyTotals.mother || 0) + (partyTotals.father || 0) + (partyTotals.shared || 0);
   const finSolePayer =
-    finSum > 0
+    finAttributed > 0
       ? ["mother", "father"].find(
-          (p) => (partyTotals[p] || 0) / finSum >= 0.995,
+          (p) => (partyTotals[p] || 0) / finAttributed >= 0.995,
         ) || null
       : null;
   const finPayerLabel = finSolePayer === "father" ? "father" : userRole;
   const finTotalShown = finSolePayer ? partyTotals[finSolePayer] || 0 : fin.total;
 
   const missed = missedSummary(report.missed_or_cancelled || []);
+  const care = partyYearSummary(report.childcare_events || [], "parent");
+  const thirdParty = thirdPartySummary(report);
   const medical = medicalAppointments(report);
+  const medSummary = medicalSummary(medical);
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
   const respThemes = responsibilityThemes(report);
+
+  // --- WV SCA-FC-106 worksheet ------------------------------------------
+  // Built here (not per renderer) so the sole-payer fold is applied
+  // consistently everywhere. `scaNeedsAttribution` flags the one case the
+  // form's % split genuinely cannot be filled: expenses exist but no payer
+  // is attributed and no sole payer is detectable — the fix is the
+  // card-lookup mapping (last-4 → parent) or payer-named exports.
+  const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
+  const sca106 = isWV
+    ? buildSca106Worksheet(expenses, cb, meta.financial_inputs || {}, {
+        solePayer: finSolePayer,
+      })
+    : null;
+  const scaNeedsAttribution = Boolean(
+    sca106 &&
+      !finSolePayer &&
+      expenses.length > 0 &&
+      (partyTotals.mother || 0) + (partyTotals.father || 0) === 0,
+  );
 
   // --- At a Glance -------------------------------------------------------
   const findings = [];
@@ -162,11 +191,130 @@ export function buildReportInsights(data) {
     finPayerLabel,
     finTotalShown,
     missed,
+    care,
+    thirdParty,
     medical,
+    medSummary,
     responsibilities,
     radarData,
     respThemes,
     findings,
+    sca106,
+    scaNeedsAttribution,
+  };
+}
+
+/**
+ * Generic per-party / per-year rollup for any dated, party-attributed event
+ * list — the same shape missedSummary produces, so Care Pattern, Missed and
+ * others can present matching summary blocks.
+ */
+export function partyYearSummary(items = [], partyField = "parent") {
+  const PARTIES = ["mother", "father", "shared", "unclear"];
+  const blank = () => ({ mother: 0, father: 0, shared: 0, unclear: 0 });
+  const byParty = blank();
+  const byYearMap = {};
+  for (const it of items) {
+    const p = PARTIES.includes(it[partyField]) ? it[partyField] : "unclear";
+    byParty[p] += 1;
+    const y = String(it.date || "").slice(0, 4) || "—";
+    if (!byYearMap[y]) byYearMap[y] = { year: y, total: 0, ...blank() };
+    byYearMap[y].total += 1;
+    byYearMap[y][p] += 1;
+  }
+  const byYear = Object.values(byYearMap).sort((a, b) =>
+    String(a.year).localeCompare(String(b.year)),
+  );
+  return {
+    total: items.length,
+    byParty,
+    byYear,
+    busiest: byYear.length
+      ? [...byYear].sort((a, b) => b.total - a.total)[0]
+      : null,
+  };
+}
+
+/**
+ * Third-party corroboration summarized: who said things about the family's
+ * caregiving, how often, when — plus a few representative statements. The
+ * full row list lives in the evidence workbook.
+ */
+export function thirdPartySummary(report) {
+  const items = report?.third_party_statements || [];
+  const bySourceMap = {};
+  const byYearMap = {};
+  for (const t of items) {
+    const src = String(t.source || "Unnamed").trim() || "Unnamed";
+    bySourceMap[src] = (bySourceMap[src] || 0) + 1;
+    const y = String(t.date || "").slice(0, 4) || "—";
+    byYearMap[y] = (byYearMap[y] || 0) + 1;
+  }
+  const highlights = [...items]
+    .filter((t) => (t.quote || "").trim())
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, 3);
+  return {
+    total: items.length,
+    sources: Object.keys(bySourceMap).length,
+    bySource: Object.entries(bySourceMap)
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count),
+    byYear: Object.entries(byYearMap)
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => a.year.localeCompare(b.year)),
+    highlights,
+  };
+}
+
+/**
+ * Medical register rolled up for the summary view and its chart: counts by
+ * appointment type (split by the acting parent), by child, and a per-role
+ * mother/father tally. The row-level detail lives in the workbook's
+ * "Medical Appointments" tab.
+ */
+export function medicalSummary(medical) {
+  const rows = medical?.rows || [];
+  const actorOf = (r) =>
+    medical.derived
+      ? r.handled_by
+      : ["taken_by", "scheduled_by", "planned_by", "paid_by"]
+          .map((f) => r[f])
+          .find((v) => v === "mother" || v === "father") || "unclear";
+  const byTypeMap = {};
+  const byChildMap = {};
+  for (const r of rows) {
+    const t = (r.appointment_type || "Unspecified").trim() || "Unspecified";
+    if (!byTypeMap[t]) byTypeMap[t] = { type: t, mother: 0, father: 0, shared: 0, unclear: 0, total: 0 };
+    const actor = actorOf(r);
+    byTypeMap[t][actor in byTypeMap[t] ? actor : "unclear"] += 1;
+    byTypeMap[t].total += 1;
+    const c = (r.child || "Unspecified").trim() || "Unspecified";
+    byChildMap[c] = (byChildMap[c] || 0) + 1;
+  }
+  const roleTally = {};
+  const roles = medical?.derived
+    ? [["handled", "handled_by"]]
+    : [["planned", "planned_by"], ["scheduled", "scheduled_by"], ["took", "taken_by"]];
+  for (const [label, field] of [...roles, ["paid", "paid_by"]]) {
+    roleTally[label] = rows.reduce(
+      (acc, r) => {
+        if (r[field] === "mother") acc.mother += 1;
+        else if (r[field] === "father") acc.father += 1;
+        return acc;
+      },
+      { mother: 0, father: 0 },
+    );
+  }
+  const spend = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return {
+    total: rows.length,
+    byType: Object.values(byTypeMap).sort((a, b) => b.total - a.total),
+    byChild: Object.entries(byChildMap)
+      .map(([child, count]) => ({ child, count }))
+      .sort((a, b) => b.count - a.count),
+    roleTally,
+    spend: Math.round(spend * 100) / 100,
   };
 }
 
