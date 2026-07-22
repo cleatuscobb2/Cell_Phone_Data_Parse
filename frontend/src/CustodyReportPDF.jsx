@@ -3,9 +3,10 @@
  * using @react-pdf/renderer. Generated entirely in the browser, so the
  * message data never leaves the device.
  *
- * Includes: case context, disclaimer, summary stats, a swim-lane timeline,
- * every extracted event with its verbatim citation, and an appendix with the
- * complete chronological message log.
+ * Includes: case context, disclaimer, summary stats, per-actor timelines,
+ * and section summaries with verbatim citations. The verbose evidence — and
+ * the complete chronological message log — lives in the evidence workbook;
+ * the PDF stays a concise analysis overview with no appendix.
  */
 
 import {
@@ -856,7 +857,7 @@ function ToneSection({ report, meta }) {
       <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
       <Text style={styles.caption}>
         Tone by year and parent, with a representative message for each read —
-        the full transcript is in the Appendix and the evidence workbook.
+        the full transcript is the Message Log tab of the evidence workbook.
       </Text>
       {years.map((y) => (
         <View key={y} style={{ marginBottom: 5 }} wrap={false}>
@@ -1011,16 +1012,6 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     meta.date_range?.length === 2
       ? `${meta.date_range[0]} to ${meta.date_range[1]}`
       : "—";
-
-  // Manually paginate the transcript appendix into fixed-size pages.
-  // Auto-paginating one very long list overflows @react-pdf's layout math.
-  // Landscape pages are shorter, so they hold fewer message-log rows.
-  const TX_PER_PAGE = landscape ? 38 : 52;
-  const txPages = [];
-  for (let i = 0; i < refed.length; i += TX_PER_PAGE) {
-    txPages.push(refed.slice(i, i + TX_PER_PAGE));
-  }
-  if (txPages.length === 0) txPages.push([]);
 
   return (
     <Document title="Custodia — Care, Responsibility &amp; Expense Report">
@@ -2002,8 +1993,8 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             label="Message log"
             value={
               meta.transcript_truncated
-                ? "Capped at the first 2,000 messages"
-                : "Complete"
+                ? "In the evidence workbook (capped at the first 2,000 messages)"
+                : "Complete — in the evidence workbook's Message Log tab"
             }
           />
         </View>
@@ -2044,47 +2035,6 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         </Text>
       </Page>
 
-      {/* Appendix — the message log, on explicit fixed-size pages. */}
-      {txPages.map((rows, pi) => (
-        <Page
-          key={`tx${pi}`}
-          size="LETTER"
-          orientation={landscape ? "landscape" : "portrait"}
-          style={styles.page}
-        >
-          {pi === 0 ? (
-            <>
-              <Text style={styles.title}>Appendix: Message Log</Text>
-              <Text style={[styles.subtitle, { marginBottom: 8 }]}>
-                {transcript.length} message{transcript.length === 1 ? "" : "s"},
-                chronological. Each carries a reference ID — T# for texts, E#
-                for emails — cited by the timeline markers and evidence entries.
-                {meta.transcript_truncated
-                  ? " This appendix is capped at the first 2,000 messages — the" +
-                    " original export file is the authoritative complete record" +
-                    " and should be provided alongside this report."
-                  : ""}
-              </Text>
-            </>
-          ) : null}
-          {rows.map((m, i) => (
-            <View key={i} style={styles.txRow} wrap={false}>
-              <Text style={styles.txMeta}>
-                <Text style={{ fontFamily: "Helvetica-Bold", color: "#475569" }}>
-                  {m.ref}
-                </Text>
-                {"  "}
-                {m.timestamp} · {m.sender}
-              </Text>
-              <Text style={styles.txBody}>{m.body}</Text>
-            </View>
-          ))}
-          <Text style={styles.footer} fixed>
-            Custodia · Confidential — prepared for legal
-            counsel
-          </Text>
-        </Page>
-      ))}
     </Document>
   );
 }
