@@ -832,7 +832,7 @@ function ToneSection({ report, meta }) {
     : [];
   if (periods.length === 0) {
     return (
-      <View>
+      <View break>
         <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
         <Text style={styles.para}>{report.sentiment_overview}</Text>
       </View>
@@ -852,7 +852,7 @@ function ToneSection({ report, meta }) {
   const toneColor = (label) =>
     label === "positive" ? "#059669" : label === "negative" ? "#dc2626" : "#64748b";
   return (
-    <View>
+    <View break>
       <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
       <Text style={styles.caption}>
         Tone by year and parent, with a representative message for each read —
@@ -1107,7 +1107,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
 
         {requiredFormList.length > 0 ? (
           <View>
-            <Text style={styles.h2}>
+            <Text style={styles.h2} break>
               Required WV Filing Forms
               {jurLabel ? ` — ${jurLabel}` : ""}
             </Text>
@@ -1154,7 +1154,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         ) : null}
 
-        <Text style={styles.h2}>Custody Breakdown</Text>
+        <Text style={styles.h2} break>Custody Breakdown</Text>
         <Text style={styles.para}>
           Childcare instances identified — with {meta.user_role}:{" "}
           {cb.instances_with_mother}; with father: {cb.instances_with_father};
@@ -1218,7 +1218,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         ) : null}
 
-        <Text style={styles.h2}>Event Timeline</Text>
+        <Text style={styles.h2} break>Event Timeline</Text>
         {timeline ? (
           <View>
             {/* One year per page — a year split across a page break is
@@ -1283,7 +1283,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         {/* Missed & Cancelled — summarized across the timespan rather than
             listed row by row; every row is in the evidence workbook. */}
         <View>
-          <Text style={styles.h2}>Missed &amp; Cancelled Visits</Text>
+          <Text style={styles.h2} break>Missed &amp; Cancelled Visits</Text>
           {report.missed_or_cancelled.length === 0 ? (
             <Text style={styles.empty}>
               No missed or cancelled visits were identified.
@@ -1394,7 +1394,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         </View>
 
         {report.responsibility_events.length > 0 ? (
-          <View wrap={false}>
+          <View wrap={false} break>
             <Text style={styles.h2}>Responsibility Coverage</Text>
             <Text style={styles.caption}>
               {meta.user_role} vs. father —{" "}
@@ -1431,7 +1431,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             back out and attributed per parent, each backed by a quote. */}
         {respThemes.length > 0 ? (
           <View>
-            <Text style={styles.h2}>Co-Parenting Themes — Per-Parent Picture</Text>
+            <Text style={styles.h2} break>Co-Parenting Themes — Per-Parent Picture</Text>
             <Text style={styles.caption}>
               Cross-cutting themes drawn from every responsibility entry
               (including the free-text &ldquo;Other&rdquo; items) — who handled
@@ -1481,7 +1481,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             separately when the analysis captured them. */}
         {medical.rows.length > 0 ? (
           <View>
-            <Text style={styles.h2}>Medical Appointments</Text>
+            <Text style={styles.h2} break>Medical Appointments</Text>
             <Text style={styles.caption}>
               {medical.rows.length} appointment
               {medical.rows.length === 1 ? "" : "s"} on record
@@ -1549,7 +1549,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
 
         {fin.hasExpenses && (
           <View>
-            <Text style={styles.h2}>
+            <Text style={styles.h2} break>
               Financial Contribution
               {finSolePayer ? ` — ${finPayerLabel}` : ""}
             </Text>
@@ -1729,7 +1729,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
 
         {sca106 && (
           <View wrap={false}>
-            <Text style={styles.h2}>
+            <Text style={styles.h2} break>
               WV Financial Statement (SCA-FC-106) — Worksheet
             </Text>
             <Text style={styles.caption}>
@@ -1935,7 +1935,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         )}
 
         <View>
-          <Text style={styles.h2}>Third-Party Statements</Text>
+          <Text style={styles.h2} break>Third-Party Statements</Text>
           {thirdParty.total === 0 ? (
             <Text style={styles.empty}>
               No third-party statements were identified.
@@ -1975,7 +1975,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
 
         <ToneSection report={report} meta={meta} />
 
-        <View wrap={false}>
+        <View wrap={false} break>
           <Text style={styles.h2}>Analysis Settings &amp; Provenance</Text>
           <Text style={styles.caption}>
             The inputs and settings used to produce this report — recorded so
@@ -2030,7 +2030,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         ) : null}
 
-        <Text style={styles.h2}>Limitations & Caveats</Text>
+        <Text style={styles.h2} break>Limitations & Caveats</Text>
         {report.limitations.map((l, i) => (
           <View key={i} style={styles.bullet}>
             <Text style={styles.bulletDot}>▲</Text>

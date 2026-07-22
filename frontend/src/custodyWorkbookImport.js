@@ -134,6 +134,7 @@ export async function parseCustodyWorkbook(file) {
   let base = {
     meta: {}, overview: "", breakdown_basis: "",
     sentiment_overview: "", limitations: [],
+    tone_by_period: [], medical_appointments: [],
   };
   const src = wb.getWorksheet("_source");
   if (src) {
@@ -202,6 +203,26 @@ export async function parseCustodyWorkbook(file) {
     insurance_paid: num(r["Insurance paid (EOB)"]),
   }));
 
+  // Medical register — the visible tab is editable (filling in the role
+  // columns is exactly what the round-trip is for), so it wins over the
+  // hidden _source copy; _source covers workbooks exported before the tab.
+  const medicalRows = readSheet(wb, "Medical Appointments").map((r) => ({
+    date: str(r["Date"]),
+    child: str(r["Child"]),
+    appointment_type: str(r["Type of medical"]),
+    provider: str(r["Name of medical"]),
+    planned_by: party(r["Planned by"]),
+    scheduled_by: party(r["Scheduled by"]),
+    taken_by: party(r["Taken by"]),
+    paid_by: party(r["Paid by"]),
+    amount: num(r["Amount (USD)"]),
+    description: str(r["Description"]),
+    quote: str(r["Verbatim quote"]),
+    channel: "unclear",
+  }));
+  const medicalAppointments =
+    medicalRows.length > 0 ? medicalRows : base.medical_appointments || [];
+
   const transcript = readSheet(wb, "Message Log").map((r) => ({
     ref: str(r["Ref"]),
     timestamp: str(r["Timestamp"]),
@@ -223,6 +244,8 @@ export async function parseCustodyWorkbook(file) {
     breakdown_basis: field("Custody breakdown basis") || base.breakdown_basis,
     sentiment_overview: field("Tone of communications") || base.sentiment_overview,
     limitations: base.limitations || [],
+    tone_by_period: base.tone_by_period || [],
+    medical_appointments: medicalAppointments,
     childcare_events: childcare,
     missed_or_cancelled: missed,
     communication_gaps: gaps,

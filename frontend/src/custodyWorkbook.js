@@ -870,6 +870,11 @@ export function buildCustodyWorkbook(data) {
     breakdown_basis: report.breakdown_basis || "",
     sentiment_overview: report.sentiment_overview || "",
     limitations: report.limitations || [],
+    // Structured fields with no fully-editable sheet of their own ride along
+    // so an import regenerates the complete report. The visible Medical
+    // Appointments tab still wins over this copy when the user edited it.
+    tone_by_period: report.tone_by_period || [],
+    medical_appointments: report.medical_appointments || [],
   });
   const src = wb.addWorksheet("_source", { state: "veryHidden" });
   src.getColumn(1).width = 120;
