@@ -105,6 +105,55 @@ export const RESPONSIBILITY_LABELS = Object.fromEntries(
   RESPONSIBILITY_CATEGORIES.map((c) => [c.key, c.full]),
 );
 
+export const MISSED_KIND_LABELS = {
+  cancellation: "Cancellation",
+  no_show: "No-show",
+  reschedule_request: "Reschedule request",
+  late: "Late",
+  declined_time: "Declined time",
+  other: "Other",
+};
+
+/**
+ * Missed / cancelled visits summarized across the whole timespan — by parent,
+ * by type, and by year — so the report can state who missed what instead of
+ * listing every row (the full rows live in the evidence workbook).
+ *
+ * `responsible_party` is only present on reports generated after that field
+ * was added; `hasParty` tells the renderer whether a per-parent split is
+ * meaningful or whether it should fall back to type/year only.
+ */
+export function missedSummary(items = []) {
+  const PARTIES = ["mother", "father", "shared", "unclear"];
+  const blank = () => ({ mother: 0, father: 0, shared: 0, unclear: 0 });
+  const byParty = blank();
+  const byType = {};
+  const byYearMap = {};
+  for (const m of items) {
+    const p = PARTIES.includes(m.responsible_party) ? m.responsible_party : "unclear";
+    byParty[p] += 1;
+    const k = m.kind || "other";
+    byType[k] = (byType[k] || 0) + 1;
+    const y = String(m.date || "").slice(0, 4) || "—";
+    if (!byYearMap[y]) byYearMap[y] = { year: y, total: 0, ...blank() };
+    byYearMap[y].total += 1;
+    byYearMap[y][p] += 1;
+  }
+  return {
+    total: items.length,
+    byParty,
+    byType: Object.keys(MISSED_KIND_LABELS)
+      .filter((k) => byType[k])
+      .map((k) => ({ kind: k, label: MISSED_KIND_LABELS[k], count: byType[k] })),
+    byYear: Object.values(byYearMap).sort((a, b) =>
+      String(a.year).localeCompare(String(b.year)),
+    ),
+    hasParty: items.some(
+      (m) => m.responsible_party && m.responsible_party !== "unclear",
+    ),
+  };
+}
+
 /**
  * Parenting responsibilities per court category, split by who handled them.
  * Each row carries `total` instances plus `motherPct`/`fatherPct` — each

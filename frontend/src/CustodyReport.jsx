@@ -555,36 +555,36 @@ export default function CustodyReport({ data }) {
         <Timeline report={report} transcript={data.transcript} />
       </Panel>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Panel title="Custody Split" subtitle="Share of childcare instances">
-          <ProportionBar data={splitData} />
-          <p className="mt-3 text-xs text-slate-400">{report.breakdown_basis}</p>
-        </Panel>
+      {/* Custody Split, then Care Pattern full-width directly underneath —
+          the monthly pattern needs the horizontal room to be readable. */}
+      <Panel title="Custody Split" subtitle="Share of childcare instances">
+        <ProportionBar data={splitData} />
+        <p className="mt-3 text-xs text-slate-400">{report.breakdown_basis}</p>
+      </Panel>
 
-        <Panel title="Care Pattern Over Time" subtitle="Childcare instances per month">
-          {monthly.length === 0 ? (
-            <EmptyNote>Not enough dated instances to chart a pattern.</EmptyNote>
-          ) : (
-            <ResponsiveContainer width="100%" height={268}>
-              <BarChart data={monthly} barCategoryGap="20%">
-                <CartesianGrid {...GRID} />
-                <XAxis {...AXIS} {...MONTH_X} dataKey="month" />
-                <YAxis {...AXIS} allowDecimals={false} width={28} />
-                <Tooltip {...TOOLTIP} />
-                <Legend wrapperStyle={LEGEND} />
-                <Bar dataKey="mother" stackId="a" fill={PARENT_COLORS.mother} name="With mother" />
-                <Bar
-                  dataKey="father"
-                  stackId="a"
-                  fill={PARENT_COLORS.father}
-                  name="With father"
-                  radius={[3, 3, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Panel>
-      </div>
+      <Panel title="Care Pattern Over Time" subtitle="Childcare instances per month">
+        {monthly.length === 0 ? (
+          <EmptyNote>Not enough dated instances to chart a pattern.</EmptyNote>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthly} barCategoryGap="20%">
+              <CartesianGrid {...GRID} />
+              <XAxis {...AXIS} {...MONTH_X} dataKey="month" />
+              <YAxis {...AXIS} allowDecimals={false} width={28} />
+              <Tooltip {...TOOLTIP} />
+              <Legend wrapperStyle={LEGEND} />
+              <Bar dataKey="mother" stackId="a" fill={PARENT_COLORS.mother} name="With mother" />
+              <Bar
+                dataKey="father"
+                stackId="a"
+                fill={PARENT_COLORS.father}
+                name="With father"
+                radius={[3, 3, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </Panel>
 
       {/* The pattern-of-absence core — emphasized. */}
       <Panel

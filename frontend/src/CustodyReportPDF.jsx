@@ -23,6 +23,7 @@ import {
   carePatternData,
   custodySplitData,
   missedByMonthAndTypeData,
+  missedSummary,
   MISSED_TYPES,
   responsibilityData,
   responsibilityRadarData,
@@ -701,6 +702,84 @@ function PdfKV({ label, value }) {
   );
 }
 
+/**
+ * Tone of co-parenting communications — a concise read by year and parent,
+ * with the trend across the period and a representative message for each.
+ * Reports generated before `tone_by_period` existed fall back to the single
+ * narrative paragraph so older reports still render.
+ */
+function ToneSection({ report, meta }) {
+  const periods = Array.isArray(report.tone_by_period)
+    ? report.tone_by_period
+    : [];
+  if (periods.length === 0) {
+    return (
+      <View>
+        <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
+        <Text style={styles.para}>{report.sentiment_overview}</Text>
+      </View>
+    );
+  }
+  const byYear = {};
+  const years = [];
+  for (const p of periods) {
+    const y = String(p.period || "").slice(0, 4) || "—";
+    if (!byYear[y]) {
+      byYear[y] = [];
+      years.push(y);
+    }
+    byYear[y].push(p);
+  }
+  years.sort();
+  const toneColor = (label) =>
+    label === "positive" ? "#059669" : label === "negative" ? "#dc2626" : "#64748b";
+  return (
+    <View>
+      <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
+      <Text style={styles.caption}>
+        Tone by year and parent, with a representative message for each read —
+        the full transcript is in the Appendix and the evidence workbook.
+      </Text>
+      {years.map((y) => (
+        <View key={y} style={{ marginBottom: 5 }} wrap={false}>
+          <Text style={{ fontFamily: "Helvetica-Bold", marginBottom: 1 }}>{y}</Text>
+          {byYear[y].map((r, i) => (
+            <View key={i} style={{ marginBottom: 2, paddingLeft: 6 }}>
+              <Text>
+                <Text
+                  style={{
+                    fontFamily: "Helvetica-Bold",
+                    color:
+                      r.party === "father" ? PDF_COLORS.father : PDF_COLORS.mother,
+                  }}
+                >
+                  {r.party === "father" ? "Father" : meta.user_role}
+                </Text>
+                {" — "}
+                <Text style={{ color: toneColor(r.label) }}>
+                  {r.label || "neutral"}
+                </Text>
+                {r.summary ? ` · ${r.summary}` : ""}
+              </Text>
+              {r.exemplar_quote ? (
+                <Text style={styles.quote}>
+                  &ldquo;{r.exemplar_quote}&rdquo;
+                  {r.date ? ` (${r.date})` : ""}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ))}
+      {report.sentiment_overview ? (
+        <Text style={[styles.para, { marginTop: 2, color: "#475569" }]}>
+          {report.sentiment_overview}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function Section({ title, items, empty, render, chart }) {
   return (
     <View>
@@ -755,6 +834,27 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
 
+  // Missed / cancelled: summarized across the timespan instead of listed row
+  // by row (the rows live in the evidence workbook). Per-parent attribution
+  // only exists on reports generated after MissedVisit gained that field.
+  const missed = missedSummary(report.missed_or_cancelled);
+  const missedStats = [
+    { label: "Total missed / cancelled", value: missed.total, color: null },
+    ...(missed.hasParty
+      ? [
+          {
+            label: `By ${meta.user_role}`,
+            value: missed.byParty.mother,
+            color: PDF_COLORS.mother,
+          },
+          { label: "By father", value: missed.byParty.father, color: PDF_COLORS.father },
+          ...(missed.byParty.unclear
+            ? [{ label: "Unattributed", value: missed.byParty.unclear, color: null }]
+            : []),
+        ]
+      : [{ label: "Years affected", value: missed.byYear.length, color: null }]),
+  ];
+
   // Financial Contribution — totals + cross-validation. Empty by default.
   const fin = buildFinancialSummary(expenses || []);
   const finFindings = fin.hasExpenses
@@ -768,6 +868,29 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     shared: c.totals.shared,
     unclear: c.totals.unclear,
   }));
+  // When effectively every document belongs to one parent (common when only
+  // that parent's receipts and statements were uploaded), present the section
+  // as their contributions rather than a two-parent split that reads as if the
+  // other parent contributed nothing.
+  const finPartyTotals = fin.grand_total || {};
+  const finSum = ["mother", "father", "shared", "unclear"].reduce(
+    (s, p) => s + (finPartyTotals[p] || 0),
+    0,
+  );
+  const finSolePayer =
+    finSum > 0
+      ? ["mother", "father"].find(
+          (p) => (finPartyTotals[p] || 0) / finSum >= 0.995,
+        ) || null
+      : null;
+  const finPayerLabel = finSolePayer === "father" ? "father" : meta.user_role;
+  const finPayerColor =
+    finSolePayer === "father" ? PDF_COLORS.father : PDF_COLORS.mother;
+  const finTotalShown = finSolePayer
+    ? finPartyTotals[finSolePayer] || 0
+    : fin.total;
+  // Single-series spec for the per-category sub-category charts.
+  const SUB_SERIES = [{ key: "amount", color: finPayerColor, label: "Paid" }];
 
   // WV SCA-FC-106 worksheet — only when WV is the filing state.
   const isWV = (meta.jurisdiction?.state || "") === "West Virginia";
@@ -926,8 +1049,12 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         <Text style={styles.h2}>Event Timeline</Text>
         {timeline ? (
           <View>
-            {timeline.years.map((ym) => (
-              <PdfTimeline key={ym.year} model={ym} plotW={timelinePlotW} />
+            {/* One year per page — a year chart split across a page break is
+                unreadable, so each starts fresh and never wraps. */}
+            {timeline.years.map((ym, i) => (
+              <View key={ym.year} break={i > 0} wrap={false}>
+                <PdfTimeline model={ym} plotW={timelinePlotW} />
+              </View>
             ))}
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
               One chart per year · month gridlines mark seasonal patterns ·
@@ -942,66 +1069,118 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </Text>
         )}
 
-        <Section
-          title="Missed & Cancelled Visits"
-          items={report.missed_or_cancelled}
-          empty="No missed or cancelled visits were identified."
-          chart={
-            report.missed_or_cancelled.length > 0 ? (
-              <View>
-                <Text style={styles.caption}>
-                  Missed / cancelled visits per month, by type
-                </Text>
-                <PdfBarChart
-                  data={missedMonthly}
-                  labelKey="month"
-                  series={missedSeries}
-                />
+        {/* Missed & Cancelled — summarized across the timespan rather than
+            listed row by row; every row is in the evidence workbook. */}
+        <View>
+          <Text style={styles.h2}>Missed &amp; Cancelled Visits</Text>
+          {report.missed_or_cancelled.length === 0 ? (
+            <Text style={styles.empty}>
+              No missed or cancelled visits were identified.
+            </Text>
+          ) : (
+            <View>
+              <Text style={styles.caption}>
+                Missed / cancelled visits per month, by type
+              </Text>
+              <PdfBarChart
+                data={missedMonthly}
+                labelKey="month"
+                series={missedSeries}
+              />
+              <View style={styles.statRow} wrap={false}>
+                {missedStats.map((s, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.stat,
+                      i === missedStats.length - 1 ? { marginRight: 0 } : null,
+                    ]}
+                  >
+                    <Text
+                      style={[styles.statValue, s.color ? { color: s.color } : null]}
+                    >
+                      {s.value}
+                    </Text>
+                    <Text style={styles.statLabel}>{s.label}</Text>
+                  </View>
+                ))}
               </View>
-            ) : null
-          }
-          render={(m) => (
-            <EvidenceItem
-              date={m.date}
-              channel={m.channel}
-              badge={m.kind.replace(/_/g, " ")}
-              description={m.description}
-              quote={m.quote}
-              sender={m.sender}
-              sourceRef={link(m)}
-            />
-          )}
-        />
+              {!missed.hasParty && (
+                <Text style={[styles.caption, { color: "#94a3b8" }]}>
+                  Per-parent attribution is available on reports generated after
+                  this feature was added — re-run the analysis to split these by
+                  parent.
+                </Text>
+              )}
 
-        <Section
-          title="Communication Gaps"
-          items={report.communication_gaps}
-          empty="No notable communication gaps were identified."
-          render={(g) => (
-            <EvidenceItem
-              date={`${g.start_date} to ${g.end_date}`}
-              badge={`${g.days} days`}
-              description={g.description}
-            />
-          )}
-        />
+              <Text style={styles.caption}>By type — whole period</Text>
+              {missed.byType.map((t) => (
+                <View key={t.kind} style={styles.bullet} wrap={false}>
+                  <Text style={styles.bulletDot}>•</Text>
+                  <Text style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: "Helvetica-Bold" }}>{t.label}</Text>
+                    {" — "}
+                    {t.count} occurrence{t.count === 1 ? "" : "s"}
+                  </Text>
+                </View>
+              ))}
 
-        <Section
-          title="Childcare Instances"
-          items={report.childcare_events}
-          empty="No childcare instances were identified."
-          render={(e) => (
-            <EvidenceItem
-              date={e.date}
-              channel={e.channel}
-              badge={`with ${e.parent}`}
-              description={e.description}
-              quote={e.quote}
-              sender={e.sender}
-              sourceRef={link(e)}
-            />
+              <Text style={[styles.caption, { marginTop: 4 }]}>
+                By year{missed.hasParty ? " and parent" : ""}
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  borderBottomWidth: 0.5,
+                  borderBottomColor: "#cbd5e1",
+                  paddingBottom: 2,
+                  marginBottom: 2,
+                }}
+              >
+                <Text style={{ width: 60, fontFamily: "Helvetica-Bold" }}>Year</Text>
+                <Text style={{ width: 70, fontFamily: "Helvetica-Bold" }}>Total</Text>
+                {missed.hasParty && (
+                  <Text
+                    style={{
+                      width: 90,
+                      fontFamily: "Helvetica-Bold",
+                      color: PDF_COLORS.mother,
+                    }}
+                  >
+                    {meta.user_role}
+                  </Text>
+                )}
+                {missed.hasParty && (
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontFamily: "Helvetica-Bold",
+                      color: PDF_COLORS.father,
+                    }}
+                  >
+                    Father
+                  </Text>
+                )}
+              </View>
+              {missed.byYear.map((y) => (
+                <View key={y.year} style={{ flexDirection: "row", marginBottom: 1 }}>
+                  <Text style={{ width: 60 }}>{y.year}</Text>
+                  <Text style={{ width: 70 }}>{y.total}</Text>
+                  {missed.hasParty && (
+                    <Text style={{ width: 90, color: PDF_COLORS.mother }}>
+                      {y.mother}
+                    </Text>
+                  )}
+                  {missed.hasParty && (
+                    <Text style={{ flex: 1, color: PDF_COLORS.father }}>
+                      {y.father}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
           )}
-        />
+        </View>
 
         {report.responsibility_events.length > 0 ? (
           <View wrap={false}>
@@ -1017,89 +1196,100 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         ) : null}
 
-        <Section
-          title="Parenting Responsibilities"
-          items={report.responsibility_events}
-          empty="No responsibility events were identified."
-          chart={
-            report.responsibility_events.length > 0 ? (
-              <View>
-                <Text style={styles.caption}>
-                  Who handled each court-recognized category —{" "}
-                  <Text style={{ color: PDF_COLORS.mother }}>mother %</Text>
-                  <Text> · </Text>
-                  <Text style={{ color: PDF_COLORS.father }}>father %</Text> is
-                  each parent&rsquo;s share of that category&rsquo;s instances
-                </Text>
-                <PdfHBar
-                  data={responsibilities}
-                  labelKey="full"
-                  series={RESP_SERIES}
-                />
-              </View>
-            ) : null
-          }
-          render={(r) => (
-            <EvidenceItem
-              date={r.date}
-              channel={r.channel}
-              badge={`${RESPONSIBILITY_LABELS[r.category] || "Other"} — ${r.responsible_party}`}
-              description={
-                r.subcategory ? `${r.subcategory} — ${r.description}` : r.description
-              }
-              quote={r.quote}
-              sender={r.sender}
-              sourceRef={link(r)}
+        {/* Who handled each category — chart only; the individual
+            responsibility rows are in the evidence workbook. */}
+        {report.responsibility_events.length > 0 ? (
+          <View>
+            <Text style={styles.caption}>
+              Who handled each court-recognized category —{" "}
+              <Text style={{ color: PDF_COLORS.mother }}>mother %</Text>
+              <Text> · </Text>
+              <Text style={{ color: PDF_COLORS.father }}>father %</Text> is each
+              parent&rsquo;s share of that category&rsquo;s instances
+            </Text>
+            <PdfHBar
+              data={responsibilities}
+              labelKey="full"
+              series={RESP_SERIES}
             />
-          )}
-        />
+          </View>
+        ) : null}
 
         {fin.hasExpenses && (
           <View>
-            <Text style={styles.h2}>Financial Contribution</Text>
+            <Text style={styles.h2}>
+              Financial Contribution
+              {finSolePayer ? ` — ${finPayerLabel}` : ""}
+            </Text>
             <Text style={styles.caption}>
-              {usd(fin.total)} in child-related expenses
+              {usd(finTotalShown)} in child-related expenses
               {fin.period ? ` · ${fin.period.start} to ${fin.period.end}` : ""}
               {" · "}{expenses.length} document{expenses.length === 1 ? "" : "s"}
+              {finSolePayer
+                ? ` · every document on file is ${finPayerLabel}’s payment`
+                : ""}
             </Text>
             <View style={styles.statRow} wrap={false}>
               <View style={styles.stat}>
-                <Text style={styles.statValue}>{usd(fin.total)}</Text>
-                <Text style={styles.statLabel}>Total tracked</Text>
+                <Text style={[styles.statValue, { color: finPayerColor }]}>
+                  {usd(finTotalShown)}
+                </Text>
+                <Text style={styles.statLabel}>
+                  {finSolePayer ? `Paid by ${finPayerLabel}` : "Total tracked"}
+                </Text>
               </View>
               <View style={styles.stat}>
-                <Text
-                  style={[styles.statValue, { color: PDF_COLORS.mother }]}
-                >
-                  {usd(fin.grand_total.mother)}
-                </Text>
-                <Text style={styles.statLabel}>Paid by {meta.user_role}</Text>
-              </View>
-              <View style={styles.stat}>
-                <Text
-                  style={[styles.statValue, { color: PDF_COLORS.father }]}
-                >
-                  {usd(fin.grand_total.father)}
-                </Text>
-                <Text style={styles.statLabel}>Paid by father</Text>
+                <Text style={styles.statValue}>{fin.by_category_sub.length}</Text>
+                <Text style={styles.statLabel}>Categories</Text>
               </View>
               <View style={[styles.stat, { marginRight: 0 }]}>
                 <Text style={styles.statValue}>{expenses.length}</Text>
                 <Text style={styles.statLabel}>Receipts / payments</Text>
               </View>
             </View>
+
+            {/* Overall shape first, then one chart per category so each
+                spending area can be read on its own. */}
             {finCategoryRows.length > 0 && (
               <View>
                 <Text style={styles.caption}>
                   Dollars spent per court-recognized category
                 </Text>
                 <PdfHBar
-                  data={finCategoryRows}
+                  data={
+                    finSolePayer
+                      ? fin.by_category_sub.map((c) => ({
+                          full: c.label,
+                          amount: c.totals[finSolePayer] || 0,
+                        }))
+                      : finCategoryRows
+                  }
                   labelKey="full"
-                  series={RESP_SERIES}
+                  series={finSolePayer ? SUB_SERIES : RESP_SERIES}
                 />
               </View>
             )}
+
+            {/* Sub-category breakdown — a separate chart per category. */}
+            {fin.by_category_sub.map((c) => (
+              <View key={c.key} style={{ marginTop: 6 }} wrap={false}>
+                <Text style={styles.caption}>
+                  {c.label} —{" "}
+                  {usd(finSolePayer ? c.totals[finSolePayer] || 0 : c.grand_total)}
+                  {" across "}
+                  {c.expense_count} payment{c.expense_count === 1 ? "" : "s"} · by
+                  sub-category
+                </Text>
+                <PdfHBar
+                  data={c.subs.map((s) => ({
+                    sub: s.subcategory,
+                    amount: finSolePayer ? s[finSolePayer] || 0 : s.grand_total,
+                  }))}
+                  labelKey="sub"
+                  series={SUB_SERIES}
+                />
+              </View>
+            ))}
             {fin.by_year.length > 1 && (
               <View wrap={false} style={{ marginTop: 6 }}>
                 <Text style={styles.caption}>Year-over-year totals</Text>
@@ -1115,27 +1305,43 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                   <Text style={{ width: 60, fontFamily: "Helvetica-Bold" }}>
                     Year
                   </Text>
-                  <Text
-                    style={{
-                      width: 100,
-                      fontFamily: "Helvetica-Bold",
-                      color: PDF_COLORS.mother,
-                    }}
-                  >
-                    With {meta.user_role}
-                  </Text>
-                  <Text
-                    style={{
-                      width: 100,
-                      fontFamily: "Helvetica-Bold",
-                      color: PDF_COLORS.father,
-                    }}
-                  >
-                    With father
-                  </Text>
-                  <Text style={{ flex: 1, fontFamily: "Helvetica-Bold" }}>
-                    Total
-                  </Text>
+                  {finSolePayer ? (
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontFamily: "Helvetica-Bold",
+                        color: finPayerColor,
+                      }}
+                    >
+                      Paid by {finPayerLabel}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={{
+                        width: 100,
+                        fontFamily: "Helvetica-Bold",
+                        color: PDF_COLORS.mother,
+                      }}
+                    >
+                      With {meta.user_role}
+                    </Text>
+                  )}
+                  {!finSolePayer && (
+                    <Text
+                      style={{
+                        width: 100,
+                        fontFamily: "Helvetica-Bold",
+                        color: PDF_COLORS.father,
+                      }}
+                    >
+                      With father
+                    </Text>
+                  )}
+                  {!finSolePayer && (
+                    <Text style={{ flex: 1, fontFamily: "Helvetica-Bold" }}>
+                      Total
+                    </Text>
+                  )}
                 </View>
                 {fin.by_year.map((y) => (
                   <View
@@ -1143,13 +1349,23 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                     style={{ flexDirection: "row", marginBottom: 1 }}
                   >
                     <Text style={{ width: 60 }}>{y.year}</Text>
-                    <Text style={{ width: 100, color: PDF_COLORS.mother }}>
-                      {usd(y.mother)}
-                    </Text>
-                    <Text style={{ width: 100, color: PDF_COLORS.father }}>
-                      {usd(y.father)}
-                    </Text>
-                    <Text style={{ flex: 1 }}>{usd(y.grand_total)}</Text>
+                    {finSolePayer ? (
+                      <Text style={{ flex: 1, color: finPayerColor }}>
+                        {usd(y[finSolePayer] || 0)}
+                      </Text>
+                    ) : (
+                      <Text style={{ width: 100, color: PDF_COLORS.mother }}>
+                        {usd(y.mother)}
+                      </Text>
+                    )}
+                    {!finSolePayer && (
+                      <Text style={{ width: 100, color: PDF_COLORS.father }}>
+                        {usd(y.father)}
+                      </Text>
+                    )}
+                    {!finSolePayer && (
+                      <Text style={{ flex: 1 }}>{usd(y.grand_total)}</Text>
+                    )}
                   </View>
                 ))}
               </View>
@@ -1387,21 +1603,10 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           )}
         />
 
-        <Section
-          title="Suggestions for Building the Case"
-          items={report.suggestions || []}
-          empty="No suggestions were generated."
-          render={(s) => (
-            <EvidenceItem
-              date={s.related_date}
-              badge={SUGGESTION_LABEL[s.category] || "Suggestion"}
-              description={s.suggestion}
-            />
-          )}
-        />
+        {/* "Suggestions for Building the Case" is intentionally omitted — the
+            full list is a tab in the evidence workbook. */}
 
-        <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
-        <Text style={styles.para}>{report.sentiment_overview}</Text>
+        <ToneSection report={report} meta={meta} />
 
         <View wrap={false}>
           <Text style={styles.h2}>Analysis Settings &amp; Provenance</Text>

@@ -82,6 +82,65 @@ function buildByCategory(expenses) {
   return rows.sort((a, b) => b.grand_total - a.grand_total);
 }
 
+/**
+ * Per-category → per-sub-category breakdown, so each court category can be
+ * charted on its own. Payer totals are kept per sub-category so a case whose
+ * receipts are all one parent's can chart just that parent's spend.
+ */
+function buildByCategorySub(expenses) {
+  const map = {};
+  for (const e of expenses) {
+    const c = e.category || "other";
+    const s = String(e.subcategory || "").trim() || "Uncategorized";
+    if (!map[c]) {
+      map[c] = {
+        key: c,
+        label: RESPONSIBILITY_LABELS[c] || "Other",
+        subs: {},
+        grand_total: 0,
+        expense_count: 0,
+        totals: EMPTY_PARTY_TOTALS(),
+      };
+    }
+    if (!map[c].subs[s]) {
+      map[c].subs[s] = {
+        subcategory: s,
+        ...EMPTY_PARTY_TOTALS(),
+        grand_total: 0,
+        expense_count: 0,
+      };
+    }
+    const amt = Number(e.amount || 0);
+    const row = map[c].subs[s];
+    if (row[e.payer] !== undefined) row[e.payer] += amt;
+    if (map[c].totals[e.payer] !== undefined) map[c].totals[e.payer] += amt;
+    row.grand_total += amt;
+    row.expense_count += 1;
+    map[c].grand_total += amt;
+    map[c].expense_count += 1;
+  }
+  const parties = ["mother", "father", "shared", "unclear"];
+  return Object.values(map)
+    .map((c) => {
+      for (const p of parties) c.totals[p] = round(c.totals[p]);
+      return {
+        key: c.key,
+        label: c.label,
+        totals: c.totals,
+        grand_total: round(c.grand_total),
+        expense_count: c.expense_count,
+        subs: Object.values(c.subs)
+          .map((s) => {
+            for (const p of parties) s[p] = round(s[p]);
+            s.grand_total = round(s.grand_total);
+            return s;
+          })
+          .sort((a, b) => b.grand_total - a.grand_total),
+      };
+    })
+    .sort((a, b) => b.grand_total - a.grand_total);
+}
+
 /** Per-year breakdown — mother vs father totals each calendar year. */
 function buildByYear(expenses) {
   const map = {};
@@ -130,6 +189,7 @@ export function buildFinancialSummary(expenses = []) {
       grand_total: EMPTY_PARTY_TOTALS(),
       total: 0,
       by_category: [],
+      by_category_sub: [],
       by_year: [],
       cumulative: [],
       period: null,
@@ -142,6 +202,7 @@ export function buildFinancialSummary(expenses = []) {
     grand_total: totals,
     total: round(totals.mother + totals.father + totals.shared + totals.unclear),
     by_category: buildByCategory(expenses),
+    by_category_sub: buildByCategorySub(expenses),
     by_year: buildByYear(expenses),
     cumulative: buildCumulative(expenses),
     period: dates.length ? { start: dates[0], end: dates[dates.length - 1] } : null,
