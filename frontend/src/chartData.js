@@ -105,6 +105,92 @@ export const RESPONSIBILITY_LABELS = Object.fromEntries(
   RESPONSIBILITY_CATEGORIES.map((c) => [c.key, c.full]),
 );
 
+/**
+ * Cross-cutting co-parenting themes. The court taxonomy (education, medical,
+ * …) misses most of the qualitative signal, which ends up in free-text
+ * "Other" responsibility entries. These patterns pull that signal back out so
+ * the report can say who actually handled discipline, communication, safety,
+ * follow-through, and the rest.
+ *
+ * Keyword-driven on purpose: it works on an already-generated report with no
+ * re-analysis, and every count is traceable to the entry that produced it.
+ */
+export const RESP_THEMES = [
+  { key: "communication", label: "Communication & responsiveness", patterns: [
+    /communicat/i, /respond|reply|replied|unanswered|ignor|no answer|never (?:got )?back/i,
+    /notif|inform|told me|let me know|kept me|heads up|blindsid/i] },
+  { key: "schedules", label: "Scheduling & exchanges", patterns: [
+    /schedul|calendar|pick.?up|drop.?off|exchange|swap|visitation|parenting time|custody time|late for/i] },
+  { key: "follow_up", label: "Follow-through", patterns: [
+    /follow.?up|follow.?through|forgot|failed to|never did|did ?n.?t (?:do|follow)|dropped the ball|remind|promised/i] },
+  { key: "discipline", label: "Discipline", patterns: [
+    /disciplin|punish|grounded|time.?out|consequence|behavio(?:u)?r plan|rules?\b|boundar/i] },
+  { key: "behavior", label: "Behavior & conduct", patterns: [
+    /behav|tantrum|acting out|attitude|outburst|melt ?down|argu|yell|scream|swear|curs/i] },
+  { key: "planning", label: "Planning & decisions", patterns: [
+    /plan(?:ning|ned)?\b|arrange|coordinat|organiz|decision|decide|agree(?:d|ment)?\b/i] },
+  { key: "financial", label: "Financial", patterns: [
+    /\$|paid|pay(?:ing|ment)?\b|cost|expense|reimburs|owe|bill|invoice|receipt|refund|money/i] },
+  { key: "insurance", label: "Insurance & claims", patterns: [
+    /insur|coverage|policy|deductible|co.?pay|\beob\b|claim/i] },
+  { key: "safety", label: "Safety & supervision", patterns: [
+    /\bsafe|unsafe|supervis|unattended|danger|hazard|car ?seat|seat ?belt|helmet|alcohol|drunk|drug|smok|weapon|injur/i] },
+  { key: "hygiene", label: "Hygiene & basic care", patterns: [
+    /hygien|bath|shower|brush|teeth|clean clothes|laundry|dirty|diaper|groom|haircut|nail/i] },
+  { key: "health", label: "Health & appointments", patterns: [
+    /doctor|dentist|medic|prescri|pharmac|sick|fever|ill\b|appointment|therap|counsel|vaccin|checkup/i] },
+  { key: "school", label: "School & academics", patterns: [
+    /school|homework|teacher|grade|class|tutor|conference|attendance|absent|report card|iep/i] },
+  { key: "support", label: "Emotional support", patterns: [
+    /support|comfort|reassur|encourag|there for|emotional|upset|cried|anxious|scared/i] },
+  { key: "gifts", label: "Gifts & occasions", patterns: [
+    /gift|present\b|birthday|christmas|holiday|easter|halloween|party\b/i] },
+  { key: "transport", label: "Transportation", patterns: [
+    /\bdriv|\bride\b|transport|vehicle|\bbus\b|carpool|gas money/i] },
+  { key: "activities", label: "Activities & enrichment", patterns: [
+    /practice|game\b|team|coach|lesson|club|camp|sport|recital|rehears/i] },
+  { key: "housing", label: "Housing & environment", patterns: [
+    /hous|\bhome\b|apartment|residence|bedroom|moved?\b|living (?:situation|arrangement)/i] },
+];
+
+/**
+ * Per-parent picture across the themes above: counts by party plus one
+ * representative quote per parent, so each theme is backed by evidence.
+ * Draws on every responsibility entry, not just the "Other" category.
+ */
+export function responsibilityThemes(report, { maxQuote = 180 } = {}) {
+  const PARTIES = ["mother", "father", "shared", "unclear"];
+  const rows = RESP_THEMES.map((t) => ({
+    key: t.key,
+    label: t.label,
+    mother: 0, father: 0, shared: 0, unclear: 0,
+    total: 0,
+    exemplars: {},
+  }));
+  const index = Object.fromEntries(rows.map((r) => [r.key, r]));
+  for (const e of report.responsibility_events || []) {
+    const hay = `${e.subcategory || ""} ${e.description || ""} ${e.quote || ""}`;
+    if (!hay.trim()) continue;
+    const party = PARTIES.includes(e.responsible_party) ? e.responsible_party : "unclear";
+    for (const t of RESP_THEMES) {
+      if (!t.patterns.some((p) => p.test(hay))) continue;
+      const row = index[t.key];
+      row[party] += 1;
+      row.total += 1;
+      if (!row.exemplars[party]) {
+        const text = String(e.quote || e.description || "").trim();
+        if (text) {
+          row.exemplars[party] = {
+            text: text.length > maxQuote ? `${text.slice(0, maxQuote)}…` : text,
+            date: e.date || "",
+          };
+        }
+      }
+    }
+  }
+  return rows.filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
+}
+
 export const MISSED_KIND_LABELS = {
   cancellation: "Cancellation",
   no_show: "No-show",

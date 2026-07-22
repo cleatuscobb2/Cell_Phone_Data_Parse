@@ -27,6 +27,7 @@ import {
   MISSED_TYPES,
   responsibilityData,
   responsibilityRadarData,
+  responsibilityThemes,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
 import {
@@ -833,6 +834,9 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
   );
   const responsibilities = responsibilityData(report);
   const radarData = responsibilityRadarData(report);
+  // Cross-cutting themes — the qualitative picture that the court taxonomy
+  // (and especially the free-text "Other" entries) otherwise buries.
+  const respThemes = responsibilityThemes(report);
 
   // Missed / cancelled: summarized across the timespan instead of listed row
   // by row (the rows live in the evidence workbook). Per-parent attribution
@@ -1212,6 +1216,51 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
               labelKey="full"
               series={RESP_SERIES}
             />
+          </View>
+        ) : null}
+
+        {/* The qualitative picture. The court categories miss most of it —
+            it lives in the free-text "Other" entries — so themes are pulled
+            back out and attributed per parent, each backed by a quote. */}
+        {respThemes.length > 0 ? (
+          <View>
+            <Text style={styles.h2}>Co-Parenting Themes — Per-Parent Picture</Text>
+            <Text style={styles.caption}>
+              Cross-cutting themes drawn from every responsibility entry
+              (including the free-text &ldquo;Other&rdquo; items) — who handled
+              discipline, communication, scheduling, safety, follow-through and
+              the rest. Counts are instances mentioning that theme;{" "}
+              <Text style={{ color: PDF_COLORS.mother }}>{meta.user_role}</Text>
+              <Text> · </Text>
+              <Text style={{ color: PDF_COLORS.father }}>father</Text>.
+            </Text>
+            <PdfHBar data={respThemes} labelKey="label" series={RESP_SERIES} />
+            {respThemes.map((t) => (
+              <View key={t.key} style={{ marginTop: 5 }} wrap={false}>
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  {t.label}
+                  {" — "}
+                  <Text style={{ color: PDF_COLORS.mother }}>
+                    {meta.user_role} {t.mother}
+                  </Text>
+                  {" · "}
+                  <Text style={{ color: PDF_COLORS.father }}>
+                    father {t.father}
+                  </Text>
+                  {t.shared ? ` · shared ${t.shared}` : ""}
+                  {t.unclear ? ` · unclear ${t.unclear}` : ""}
+                </Text>
+                {["mother", "father"].map((p) =>
+                  t.exemplars[p] ? (
+                    <Text key={p} style={styles.quote}>
+                      {p === "father" ? "Father" : meta.user_role}:{" "}
+                      &ldquo;{t.exemplars[p].text}&rdquo;
+                      {t.exemplars[p].date ? ` (${t.exemplars[p].date})` : ""}
+                    </Text>
+                  ) : null,
+                )}
+              </View>
+            ))}
           </View>
         ) : null}
 
