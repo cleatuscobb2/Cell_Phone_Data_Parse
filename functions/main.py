@@ -52,6 +52,7 @@ from parser import (
     sample_columns,
     search_messages,
     to_condensed_string,
+    utf8_safe,
     with_context,
 )
 from relevance import (
@@ -1299,6 +1300,24 @@ def _normalize_extraction(report: CustodyExtraction) -> None:
         s.category = _bucket(s.category, _SUGGESTION_CATEGORIES, "other")
 
 
+def _utf8_safe_payload(value):
+    """Strip unpaired surrogates from anything about to be sent to the API.
+
+    parser.utf8_safe already cleans message text at ingestion; this catches
+    everything else that reaches a prompt (form fields, filenames, document
+    text) so one stray half-emoji cannot fail an entire run at the HTTP
+    boundary. Clean strings are returned unchanged, so this is a no-op in the
+    normal case.
+    """
+    if isinstance(value, str):
+        return utf8_safe(value)
+    if isinstance(value, list):
+        return [_utf8_safe_payload(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _utf8_safe_payload(v) for k, v in value.items()}
+    return value
+
+
 def _coerce_tool_payload(payload):
     """Some Claude tool_use payloads come back with a list or object encoded
     as a JSON string. Unwrap any string value that parses as JSON object /
@@ -1357,6 +1376,8 @@ def _structured_extract(
     Thinking is incompatible with a forced tool_choice on this model, so
     it is not enabled here."""
     _ = use_thinking  # noqa: F841
+    system_text = _utf8_safe_payload(system_text)
+    user_content = _utf8_safe_payload(user_content)
     with client().messages.stream(
         model=MODEL,
         max_tokens=min(max_tokens or MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS),

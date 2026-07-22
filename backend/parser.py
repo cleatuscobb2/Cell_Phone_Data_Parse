@@ -25,6 +25,25 @@ from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any
 
 
+def utf8_safe(s):
+    """Drop unpaired UTF-16 surrogates from a string.
+
+    An emoji truncated mid-pair upstream (a size cap slicing by code unit)
+    leaves a lone surrogate (a code unit in the U+D800-U+DBFF
+    range). Python holds it happily in a
+    str, but it cannot be encoded to UTF-8 — so it detonates later at the
+    HTTP boundary ("surrogates not allowed") when the transcript is sent to
+    the API, wasting the whole run. Strip it where text enters instead.
+    """
+    if not isinstance(s, str) or not s:
+        return s
+    try:
+        s.encode("utf-8")
+        return s
+    except UnicodeEncodeError:
+        return s.encode("utf-8", "ignore").decode("utf-8", "ignore")
+
+
 @dataclass
 class Message:
     timestamp: datetime
@@ -34,6 +53,15 @@ class Message:
     from_me: bool
     channel: str = "text"  # "text" or "email"
     attachments: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        # Single choke point: every Message, however it was built, is UTF-8
+        # encodable by the time anything downstream sees it.
+        self.sender = utf8_safe(self.sender)
+        self.body = utf8_safe(self.body)
+        self.conversation = utf8_safe(self.conversation)
+        if self.attachments:
+            self.attachments = [utf8_safe(a) for a in self.attachments]
 
 
 # Candidate key names across the export variants we accept. Lookup is

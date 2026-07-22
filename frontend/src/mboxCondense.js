@@ -25,6 +25,22 @@ const REPLY_MARKERS = [
 const BODY_CAP = 800;
 
 /** Strip quoted reply history, ">" lines, collapse whitespace, cap length. */
+/**
+ * Truncate without splitting a UTF-16 surrogate pair.
+ *
+ * JS strings index by code unit, so slicing mid-emoji leaves a lone high
+ * surrogate. That is legal in JS and survives JSON.stringify, but it cannot
+ * be encoded to UTF-8 — the backend then dies with "surrogates not allowed"
+ * when it serializes the transcript. Drop the orphan half instead.
+ */
+export function safeSlice(text, max) {
+  if (typeof text !== "string" || text.length <= max) return text;
+  let out = text.slice(0, max);
+  const last = out.charCodeAt(out.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) out = out.slice(0, -1);
+  return out;
+}
+
 export function cleanEmailBody(text) {
   if (!text) return "";
   let cut = text.length;
@@ -34,12 +50,11 @@ export function cleanEmailBody(text) {
   }
   const m = text.match(/\nOn [\s\S]{0,200}? wrote:/);
   if (m && m.index !== undefined) cut = Math.min(cut, m.index);
-  const lines = text
-    .slice(0, cut)
+  const lines = safeSlice(text, cut)
     .split(/\r?\n/)
     .map((ln) => ln.trim())
     .filter((ln) => ln && !ln.startsWith(">"));
-  return lines.join(" ").slice(0, BODY_CAP);
+  return safeSlice(lines.join(" "), BODY_CAP);
 }
 
 /** Decode RFC 2047 encoded words: =?charset?B|Q?data?= (Subject/From names). */
