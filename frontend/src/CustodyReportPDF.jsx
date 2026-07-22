@@ -13,6 +13,7 @@ import {
   Line,
   Page,
   Polygon,
+  Polyline,
   StyleSheet,
   Svg,
   Text,
@@ -523,133 +524,211 @@ function PdfRadar({ data, series }) {
 const PLOT_W = 420;
 const LABEL_W = 95;
 const LANE_H = 34;
+// Per-actor plot geometry: trend sparkline, marker row, per-month counts.
+const SPARK_H = 12;
+const MARK_H = 12;
+const COUNT_H = 7;
 
-/** One year's swim-lane timeline — a full Jan–Dec span with month gridlines.
-    `plotW` widens the plotting area for the landscape layout. */
-function PdfTimeline({ model, plotW = PLOT_W }) {
-  // Shrink markers when a lane is dense so overlap reads as a pattern.
-  const totalPoints = model.lanes.reduce((s, l) => s + l.points.length, 0);
-  const mk = totalPoints > 120 ? 4 : totalPoints > 60 ? 5 : 7;
-  const yearTotal = model.lanes.reduce((s, l) => s + l.count, 0);
-
+/** A 12-point trend line across the year's monthly counts. */
+function Sparkline({ values, width, height, color }) {
+  const max = Math.max(1, ...values);
+  const pts = values
+    .map((v, i) => {
+      const x = ((i + 0.5) / 12) * width;
+      const y = height - 1 - (v / max) * (height - 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
   return (
-    <View wrap={false} style={{ marginTop: 8 }}>
-      {/* Year heading */}
-      <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#334155" }}>
-        {model.year}{" "}
-        <Text style={{ fontSize: 7, fontFamily: "Helvetica", color: "#94a3b8" }}>
-          · {yearTotal} {yearTotal === 1 ? "event" : "events"}
+    <Svg width={width} height={height}>
+      <Polyline points={pts} fill="none" stroke={color} strokeWidth={0.9} />
+    </Svg>
+  );
+}
+
+/** Milestone strip — the free-text "Other" responsibility entries, which is
+    where activities, milestones and one-off events land. Labels alternate
+    between two rows so neighbouring dates stay legible. */
+function PdfMilestones({ items, plotW }) {
+  const ROW = 8;
+  return (
+    <View style={{ flexDirection: "row", marginTop: 3 }} wrap={false}>
+      <View style={{ width: LABEL_W, paddingRight: 4 }}>
+        <Text style={{ fontSize: 6.5, fontFamily: "Helvetica-Bold", color: "#475569" }}>
+          Milestones
         </Text>
-      </Text>
-      {/* Month axis */}
-      <View style={{ flexDirection: "row", marginTop: 2 }}>
-        <View style={{ width: LABEL_W }} />
-        <View style={{ width: plotW, height: 10 }}>
-          {model.ticks.map((t, i) => (
-            <Text
-              key={i}
+        <Text style={{ fontSize: 5, color: "#94a3b8" }}>
+          from &ldquo;Other&rdquo;
+        </Text>
+      </View>
+      <View style={{ width: plotW, height: ROW * 2 + 2 }}>
+        {items.map((m, i) => (
+          <View
+            key={`t${i}`}
+            style={{
+              position: "absolute",
+              left: m.frac * plotW,
+              top: 0,
+              width: 0.6,
+              height: ROW * 2,
+              backgroundColor: m.color,
+              opacity: 0.7,
+            }}
+          />
+        ))}
+        {items.map((m, i) => (
+          <Text
+            key={`l${i}`}
+            style={{
+              position: "absolute",
+              left: Math.max(0, Math.min(plotW - 52, m.frac * plotW + 1)),
+              top: (i % 2) * ROW,
+              fontSize: 4.6,
+              color: m.color,
+            }}
+          >
+            {m.label}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** One actor's strip for a year: trend sparkline, dated markers, and the
+    per-month instance counts underneath. */
+function PdfGroupPlot({ group, plotW }) {
+  const mk = group.points.length > 90 ? 3.5 : group.points.length > 45 ? 4.5 : 6;
+  const max = Math.max(...group.monthly, 0);
+  return (
+    <View style={{ flexDirection: "row", marginBottom: 3 }} wrap={false}>
+      <View style={{ width: LABEL_W, paddingRight: 4, justifyContent: "center" }}>
+        <Text style={{ fontSize: 7, fontFamily: "Helvetica-Bold", color: group.color }}>
+          {group.label}
+        </Text>
+        <Text style={{ fontSize: 5.5, color: "#94a3b8" }}>
+          {group.total} {group.total === 1 ? "entry" : "entries"}
+        </Text>
+      </View>
+      <View style={{ width: plotW }}>
+        <Sparkline
+          values={group.monthly}
+          width={plotW}
+          height={SPARK_H}
+          color={group.color}
+        />
+        <View style={{ width: plotW, height: MARK_H }}>
+          {group.monthly.map((_, m) => (
+            <View
+              key={`g${m}`}
               style={{
                 position: "absolute",
-                left: t.frac * plotW + 1.5,
-                width: 28,
-                textAlign: "left",
-                fontSize: 6,
-                color: "#94a3b8",
+                left: (m / 12) * plotW,
+                top: 0,
+                width: 0.4,
+                height: MARK_H,
+                backgroundColor: "#eef2f7",
+              }}
+            />
+          ))}
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: MARK_H / 2,
+              width: plotW,
+              height: 0.4,
+              backgroundColor: "#cbd5e1",
+            }}
+          />
+          {group.spans.map((s, j) => (
+            <View
+              key={`s${j}`}
+              style={{
+                position: "absolute",
+                left: s.startFrac * plotW,
+                top: MARK_H / 2 - 3,
+                width: Math.max(2, (s.endFrac - s.startFrac) * plotW),
+                height: 6,
+                backgroundColor: group.color,
+                opacity: 0.5,
+                borderRadius: 2,
+              }}
+            />
+          ))}
+          {group.points.map((p, j) => (
+            <View
+              key={`p${j}`}
+              style={{
+                position: "absolute",
+                left: p.frac * plotW - mk / 2,
+                top: MARK_H / 2 - mk / 2,
+                width: mk,
+                height: mk,
+                backgroundColor: p.color,
+                // Missed / cancelled render square so they stand out.
+                borderRadius: p.kind === "missed" ? 0 : mk / 2,
+                borderWidth: 0.4,
+                borderColor: "#ffffff",
+              }}
+            />
+          ))}
+        </View>
+        <View style={{ width: plotW, height: COUNT_H, flexDirection: "row" }}>
+          {group.monthly.map((c, m) => (
+            <Text
+              key={`c${m}`}
+              style={{
+                width: plotW / 12,
+                textAlign: "center",
+                fontSize: 5,
+                fontFamily: c > 0 && c === max ? "Helvetica-Bold" : "Helvetica",
+                color: c === 0 ? "#cbd5e1" : c === max ? group.color : "#64748b",
               }}
             >
-              {t.label}
+              {c}
             </Text>
           ))}
         </View>
       </View>
+    </View>
+  );
+}
 
-      {/* Lanes */}
-      {model.lanes.map((lane, li) => (
-        <View key={lane.key} style={{ flexDirection: "row" }}>
-          <View
-            style={{ width: LABEL_W, height: LANE_H, justifyContent: "center", paddingRight: 4 }}
-          >
-            <Text style={{ fontSize: 7, fontFamily: "Helvetica-Bold", color: lane.color }}>
-              {lane.label}
+/** One year of the timeline as separate per-actor plots stacked on a page. */
+function PdfTimelineYear({ model, plotW = PLOT_W }) {
+  const yearTotal = model.groups.reduce((s, g) => s + g.total, 0);
+  return (
+    <View wrap={false} style={{ marginTop: 8 }}>
+      <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#334155" }}>
+        {model.year}{" "}
+        <Text style={{ fontSize: 7, fontFamily: "Helvetica", color: "#94a3b8" }}>
+          · {yearTotal} {yearTotal === 1 ? "entry" : "entries"}
+        </Text>
+      </Text>
+      <View style={{ flexDirection: "row", marginTop: 2 }}>
+        <View style={{ width: LABEL_W }} />
+        <View style={{ width: plotW, flexDirection: "row" }}>
+          {model.months.map((m, i) => (
+            <Text
+              key={i}
+              style={{
+                width: plotW / 12,
+                textAlign: "center",
+                fontSize: 5.5,
+                color: "#94a3b8",
+              }}
+            >
+              {m}
             </Text>
-            <Text style={{ fontSize: 6, color: "#94a3b8" }}>{lane.count} events</Text>
-          </View>
-          <View
-            style={{
-              width: plotW,
-              height: LANE_H,
-              backgroundColor: li % 2 === 0 ? "#f8fafc" : "#ffffff",
-              borderLeftWidth: 1,
-              borderLeftColor: "#cbd5e1",
-            }}
-          >
-            {model.ticks.map((t, i) => (
-              <View
-                key={`g${i}`}
-                style={{
-                  position: "absolute",
-                  left: t.frac * plotW,
-                  top: 0,
-                  width: 0.5,
-                  height: LANE_H,
-                  backgroundColor: "#e2e8f0",
-                }}
-              />
-            ))}
-            {lane.spans.map((s, j) => (
-              <View
-                key={`s${j}`}
-                style={{
-                  position: "absolute",
-                  left: s.startFrac * plotW,
-                  top: LANE_H / 2 - 4,
-                  width: Math.max(2, (s.endFrac - s.startFrac) * plotW),
-                  height: 8,
-                  backgroundColor: lane.color,
-                  opacity: 0.5,
-                  borderRadius: 2,
-                }}
-              />
-            ))}
-            {lane.points.map((p, j) => (
-              <View
-                key={`p${j}`}
-                style={{
-                  position: "absolute",
-                  left: p.frac * plotW - mk / 2,
-                  top: LANE_H / 2 - mk / 2,
-                  width: mk,
-                  height: mk,
-                  backgroundColor: p.color,
-                  // Missed/cancelled visits render as squares (milestones).
-                  borderRadius: lane.key === "missed" ? 0 : mk / 2,
-                  borderWidth: 0.5,
-                  borderColor: "#ffffff",
-                }}
-              />
-            ))}
-            {/* Source-message ref above each marker — the print stand-in
-                for the web timeline's hover detail. */}
-            {lane.points.map((p, j) =>
-              p.ref ? (
-                <Text
-                  key={`r${j}`}
-                  style={{
-                    position: "absolute",
-                    left: p.frac * plotW - 11,
-                    top: LANE_H / 2 - mk / 2 - 7,
-                    width: 22,
-                    textAlign: "center",
-                    fontSize: 3.8,
-                    color: p.color,
-                  }}
-                >
-                  {p.ref}
-                </Text>
-              ) : null,
-            )}
-          </View>
+          ))}
         </View>
+      </View>
+      {model.milestones.length > 0 ? (
+        <PdfMilestones items={model.milestones} plotW={plotW} />
+      ) : null}
+      {model.groups.map((g) => (
+        <PdfGroupPlot key={g.key} group={g} plotW={plotW} />
       ))}
     </View>
   );
@@ -1150,18 +1229,23 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         <Text style={styles.h2}>Event Timeline</Text>
         {timeline ? (
           <View>
-            {/* One year per page — a year chart split across a page break is
+            {/* One year per page — a year split across a page break is
                 unreadable, so each starts fresh and never wraps. */}
             {timeline.years.map((ym, i) => (
               <View key={ym.year} break={i > 0} wrap={false}>
-                <PdfTimeline model={ym} plotW={timelinePlotW} />
+                <PdfTimelineYear model={ym} plotW={timelinePlotW} />
               </View>
             ))}
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
-              One chart per year · month gridlines mark seasonal patterns ·
-              squares mark missed or cancelled visits · amber bars are
-              communication gaps · the ID above each marker (T# / E#) cites the
-              source message in the Appendix
+              One page per year, split into a plot per actor — each parent,
+              third parties, and communication gaps. The line above each strip
+              is that actor&rsquo;s month-by-month trend; the numbers beneath
+              are the instance count per month (the year&rsquo;s peak is bold).
+              Squares mark missed or cancelled visits, amber bars are
+              communication gaps, and the Milestones strip carries the
+              free-text &ldquo;Other&rdquo; entries — activities and one-off
+              events. An entry involving both parents appears on both strips;
+              entries that could not be attributed appear on neither.
             </Text>
           </View>
         ) : (

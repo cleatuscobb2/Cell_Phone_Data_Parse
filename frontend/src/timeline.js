@@ -95,14 +95,22 @@ function extractEvents(report, refed) {
     .filter(Boolean);
 
   const responsibility = (report.responsibility_events || [])
-    .map((e) =>
-      point(
+    .map((e) => {
+      const p = point(
         e,
         "#0ea5e9",
         `${e.date} · ${e.category.replace(/_/g, " ")} (${e.responsible_party}) — ${e.description}`,
         e.responsible_party,
-      ),
-    )
+      );
+      if (!p) return null;
+      // The free-text "Other" category is where activities, milestones and
+      // one-off events land — surfaced as labelled markers on the timeline.
+      p.isOther = String(e.category || "") === "other";
+      p.milestoneLabel = String(e.subcategory || e.description || "")
+        .trim()
+        .slice(0, 26);
+      return p;
+    })
     .filter(Boolean);
 
   const thirdparty = (report.third_party_statements || [])
@@ -226,6 +234,98 @@ export function buildYearlyTimelineModels(report, transcript) {
       });
     });
 
+    // --- Per-actor plots -------------------------------------------------
+    // A second view of the same year: one plot per actor (each parent, third
+    // parties, communication gaps) rather than one per event type, so a
+    // reader can see each party's year on its own strip. Each carries a
+    // 12-month count series to drive a trend sparkline.
+    const tally = (items) => {
+      const m = new Array(12).fill(0);
+      for (const it of items) m[it.date.getMonth()] += 1;
+      return m;
+    };
+    // A "shared" event involved both parents, so it appears on both strips.
+    const forParty = (party) => {
+      const pick = (arr, kind) =>
+        arr
+          .filter(
+            (e) => inYear(e.date) && (e.party === party || e.party === "shared"),
+          )
+          .map((e) => ({ ...e, kind }));
+      return [
+        ...pick(events.childcare, "childcare"),
+        ...pick(events.missed, "missed"),
+        ...pick(events.responsibility, "responsibility"),
+      ].sort((a, b) => a.date - b.date);
+    };
+    const groupOf = (key, label, color, raw) => ({
+      key,
+      label,
+      color,
+      points: raw.map((e) => ({
+        ...toPoint(e),
+        kind: e.kind || key,
+      })),
+      spans: [],
+      monthly: tally(raw),
+      total: raw.length,
+    });
+
+    const gapSpans = events.gaps
+      .filter((g) => g.start.getFullYear() <= year && g.end.getFullYear() >= year)
+      .map((g) => {
+        const s = g.start < start ? start : g.start;
+        const e = g.end > end ? end : g.end;
+        return {
+          startFrac: frac(s),
+          endFrac: frac(e),
+          title: g.title,
+          startMonth: s.getMonth(),
+          endMonth: e.getMonth(),
+        };
+      });
+    const gapMonthly = new Array(12).fill(0);
+    for (const s of gapSpans) {
+      for (let m = s.startMonth; m <= s.endMonth; m++) gapMonthly[m] += 1;
+    }
+
+    const groups = [
+      groupOf("mother", "Mother", PARENT_MARKER.mother, forParty("mother")),
+      groupOf("father", "Father", PARENT_MARKER.father, forParty("father")),
+      groupOf(
+        "thirdparty",
+        "Third-Party",
+        "#64748b",
+        events.thirdparty
+          .filter((e) => inYear(e.date))
+          .map((e) => ({ ...e, kind: "thirdparty" })),
+      ),
+      {
+        key: "gap",
+        label: "Comm. Gaps",
+        color: "#f59e0b",
+        points: [],
+        spans: gapSpans,
+        monthly: gapMonthly,
+        total: gapSpans.length,
+      },
+    ];
+
+    // Milestones — the free-text "Other" responsibility entries, where
+    // activities, milestones and one-off events end up. Capped so the strip
+    // stays legible.
+    const milestones = events.responsibility
+      .filter((e) => inYear(e.date) && e.isOther && e.milestoneLabel)
+      .sort((a, b) => a.date - b.date)
+      .slice(0, 14)
+      .map((e) => ({
+        frac: frac(e.date),
+        label: e.milestoneLabel,
+        party: e.party || "unclear",
+        color: PARENT_MARKER[e.party] ?? PARENT_MARKER.unclear,
+        title: e.ref ? `${e.ref} · ${e.title}` : e.title,
+      }));
+
     // Twelve month gridlines — one per month, plus a final Dec-31 boundary.
     const ticks = MONTHS.map((label, m) => ({
       frac: frac(new Date(year, m, 1)),
@@ -235,6 +335,9 @@ export function buildYearlyTimelineModels(report, transcript) {
     return {
       year,
       lanes,
+      groups,
+      milestones,
+      months: MONTHS,
       ticks,
       startLabel: `${year}-01-01`,
       endLabel: `${year}-12-31`,
