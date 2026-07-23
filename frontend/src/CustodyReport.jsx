@@ -1249,10 +1249,10 @@ export default function CustodyReport({ data }) {
               </ChartCaption>
               <ResponsiveContainer
                 width="100%"
-                height={Math.max(120, c.subs.length * 30 + 44)}
+                height={Math.max(120, Math.min(20, c.subs.length) * 30 + 44)}
               >
                 <BarChart
-                  data={c.subs.map((sub) => ({
+                  data={c.subs.slice(0, 20).map((sub) => ({
                     subcategory: sub.subcategory,
                     amount: finSolePayer
                       ? sub[finSolePayer] || 0
@@ -1284,6 +1284,12 @@ export default function CustodyReport({ data }) {
                   />
                 </BarChart>
               </ResponsiveContainer>
+              {c.subs.length > 20 && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Showing the top 20 of {c.subs.length} sub-categories — full
+                  detail in the workbook&rsquo;s Pivot - Spend tabs.
+                </p>
+              )}
             </div>
           ))}
 

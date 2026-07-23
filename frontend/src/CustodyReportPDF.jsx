@@ -1610,7 +1610,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                   labelKey="sub"
                   series={SUB_SERIES}
                   money
-                  maxRows={12}
+                  maxRows={20}
                 />
               </View>
             ))}
