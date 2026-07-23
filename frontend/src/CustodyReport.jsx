@@ -390,6 +390,7 @@ export default function CustodyReport({ data }) {
     findings,
     sca106,
     scaNeedsAttribution,
+    parentCompare,
   } = buildReportInsights(data);
   const finPayerColor =
     finSolePayer === "father" ? PARENT_COLORS.father : PARENT_COLORS.mother;
@@ -520,6 +521,50 @@ export default function CustodyReport({ data }) {
             Condensed — the full narrative is in the evidence workbook&rsquo;s
             Summary tab; the bullets below carry the key findings.
           </p>
+        )}
+        {parentCompare && (
+          <div className="mt-4 overflow-x-auto">
+            <p className="mb-1 text-xs font-medium text-slate-500">
+              Side by side — counts from the evidence in this report, not
+              judgments
+            </p>
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs">
+                  <th className="w-40 py-1 text-left font-semibold text-slate-500"></th>
+                  <th
+                    className="py-1 text-left font-semibold"
+                    style={{ color: PARENT_COLORS.mother }}
+                  >
+                    {meta.user_role}
+                  </th>
+                  <th
+                    className="py-1 text-left font-semibold"
+                    style={{ color: PARENT_COLORS.father }}
+                  >
+                    Father
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {parentCompare.rows.map((r) => (
+                  <tr key={r.key} className="border-b border-slate-50 align-top">
+                    <td className="py-1.5 pr-2 text-xs font-semibold text-slate-500">
+                      {r.dim}
+                    </td>
+                    <td className="py-1.5 pr-3 text-slate-700">
+                      <span className="mr-1 text-indigo-400">•</span>
+                      {parentCompare.mother[r.key]}
+                    </td>
+                    <td className="py-1.5 text-slate-700">
+                      <span className="mr-1 text-orange-400">•</span>
+                      {parentCompare.father[r.key]}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Panel>
 

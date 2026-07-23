@@ -947,6 +947,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     findings,
     sca106,
     scaNeedsAttribution,
+    parentCompare,
   } = buildReportInsights(data);
   const overviewText = conciseOverview(report.overview);
 
@@ -1058,6 +1059,76 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             Condensed — the full narrative is in the evidence workbook&rsquo;s
             Summary tab; At a Glance below carries the key findings.
           </Text>
+        ) : null}
+
+        {parentCompare ? (
+          <View wrap={false} style={{ marginTop: 4 }}>
+            <Text style={styles.caption}>
+              Side by side — counts from the evidence in this report, not
+              judgments
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                borderBottomWidth: 0.5,
+                borderBottomColor: "#cbd5e1",
+                paddingBottom: 2,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ width: 92 }} />
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 7.5,
+                  fontFamily: "Helvetica-Bold",
+                  color: PDF_COLORS.mother,
+                  paddingRight: 6,
+                }}
+              >
+                {meta.user_role}
+              </Text>
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 7.5,
+                  fontFamily: "Helvetica-Bold",
+                  color: PDF_COLORS.father,
+                }}
+              >
+                Father
+              </Text>
+            </View>
+            {parentCompare.rows.map((r) => (
+              <View
+                key={r.key}
+                style={{
+                  flexDirection: "row",
+                  borderBottomWidth: 0.3,
+                  borderBottomColor: "#f1f5f9",
+                  paddingVertical: 2,
+                }}
+              >
+                <Text
+                  style={{
+                    width: 92,
+                    fontSize: 7,
+                    fontFamily: "Helvetica-Bold",
+                    color: "#64748b",
+                    paddingRight: 4,
+                  }}
+                >
+                  {r.dim}
+                </Text>
+                <Text style={{ flex: 1, fontSize: 7.5, color: "#334155", paddingRight: 6 }}>
+                  • {parentCompare.mother[r.key]}
+                </Text>
+                <Text style={{ flex: 1, fontSize: 7.5, color: "#334155" }}>
+                  • {parentCompare.father[r.key]}
+                </Text>
+              </View>
+            ))}
+          </View>
         ) : null}
 
         {/* The shape of the case up front, computed from the evidence below,

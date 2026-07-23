@@ -182,6 +182,84 @@ export function buildReportInsights(data) {
     );
   }
 
+  // --- Side-by-side parent comparison for the Overview ------------------
+  // One row per dimension, a short phrase per parent — strengths, tone,
+  // contributions and responsibilities at a glance. Everything is counts
+  // from the evidence above; nothing editorial.
+  const catLead = (party) =>
+    responsibilities
+      .map((r) => ({ short: r.category, diff: r[party] - r[party === "mother" ? "father" : "mother"] }))
+      .filter((r) => r.diff > 0)
+      .sort((a, b) => b.diff - a.diff)
+      .slice(0, 2)
+      .map((r) => r.short);
+  const themeLead = (party) =>
+    respThemes
+      .map((t) => ({ label: t.label, diff: t[party] - t[party === "mother" ? "father" : "mother"] }))
+      .filter((t) => t.diff > 0)
+      .sort((a, b) => b.diff - a.diff)
+      .slice(0, 2)
+      .map((t) => t.label);
+  const toneOf = (party) => {
+    const entries = (report.tone_by_period || []).filter((t) => t.party === party);
+    if (!entries.length) return null;
+    const counts = {};
+    for (const t of entries) counts[t.label] = (counts[t.label] || 0) + 1;
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    const years = entries.map((t) => t.period).sort();
+    const span = years[0] === years[years.length - 1]
+      ? years[0]
+      : `${years[0]}–${years[years.length - 1]}`;
+    return `mostly ${top} (${span})`;
+  };
+  const respTotals = {
+    mother: responsibilities.reduce((s, r) => s + r.mother, 0),
+    father: responsibilities.reduce((s, r) => s + r.father, 0),
+  };
+  const cell = (party) => {
+    const other = party === "mother" ? "father" : "mother";
+    void other;
+    return {
+      care:
+        care.total > 0
+          ? `${care.byParty[party]} childcare instance${care.byParty[party] === 1 ? "" : "s"} (${party === "mother" ? cb.estimated_pct_mother ?? 0 : cb.estimated_pct_father ?? 0}% of time)`
+          : "—",
+      responsibilities:
+        respTotals[party] > 0
+          ? `${respTotals[party]} handled` +
+            (catLead(party).length ? ` — leads in ${catLead(party).join(", ")}` : "")
+          : "none recorded",
+      communication:
+        [
+          toneOf(party),
+          missed.hasParty && missed.byParty[party] > 0
+            ? `${missed.byParty[party]} missed/cancelled`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "—",
+      contributions:
+        (partyTotals[party] || 0) > 0
+          ? `${usd(party === finSolePayer ? finTotalShown : partyTotals[party])} documented`
+          : "none documented",
+      strengths: themeLead(party).join(", ") || "—",
+    };
+  };
+  const parentCompare =
+    attributed + respTotals.mother + respTotals.father > 0
+      ? {
+          rows: [
+            { dim: "Care & time", key: "care" },
+            { dim: "Responsibilities", key: "responsibilities" },
+            { dim: "Communication & tone", key: "communication" },
+            { dim: "Contributions", key: "contributions" },
+            { dim: "Most-mentioned themes", key: "strengths" },
+          ],
+          mother: cell("mother"),
+          father: cell("father"),
+        }
+      : null;
+
   return {
     userRole,
     expenses,
@@ -201,6 +279,7 @@ export function buildReportInsights(data) {
     findings,
     sca106,
     scaNeedsAttribution,
+    parentCompare,
   };
 }
 
