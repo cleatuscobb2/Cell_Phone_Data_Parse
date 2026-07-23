@@ -38,7 +38,7 @@ import {
   MISSED_TYPES,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
-import { buildReportInsights, toneByYear } from "./reportInsights.js";
+import { buildReportInsights, conciseOverview, toneByYear } from "./reportInsights.js";
 import {
   requiredForms,
   FORM_EVIDENCE,
@@ -394,6 +394,7 @@ export default function CustodyReport({ data }) {
   const finPayerColor =
     finSolePayer === "father" ? PARENT_COLORS.father : PARENT_COLORS.mother;
   const toneYears = toneByYear(report);
+  const overviewText = conciseOverview(report.overview);
 
   // WV SCA-FC-106 Financial Statement worksheet — child-related expense
   // averages by category, plus optional % of income. Only renders when WV
@@ -513,7 +514,13 @@ export default function CustodyReport({ data }) {
       </div>
 
       <Panel title="Overview">
-        <p className="text-sm text-slate-700">{report.overview}</p>
+        <p className="text-sm text-slate-700">{overviewText.text}</p>
+        {overviewText.truncated && (
+          <p className="mt-2 text-xs text-slate-400">
+            Condensed — the full narrative is in the evidence workbook&rsquo;s
+            Summary tab; the bullets below carry the key findings.
+          </p>
+        )}
       </Panel>
 
       {/* The shape of the case up front — same findings as the PDF. */}

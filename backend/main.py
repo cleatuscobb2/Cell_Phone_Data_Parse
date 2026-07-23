@@ -549,7 +549,7 @@ all windows.
 
 Produce a single unified analysis of the ENTIRE history:
 
-- overview: A neutral, factual 4-6 sentence summary of what the co-parenting \
+- overview: A tight, neutral 3-4 sentence synthesis of what the whole record \
 communications show across the whole period.
 
 - breakdown_basis: A short explanation of how the childcare instances were \
@@ -1221,6 +1221,24 @@ def _bucket(value: str | None, allowed: set[str], fallback: str) -> str:
     return v if v in allowed else fallback
 
 
+def _clip_narrative(texts, max_chars: int = 700) -> str:
+    """Join per-window narrative fragments WITHOUT letting them concatenate
+    into pages. A 133-window run whose reduce call fails must fall back to a
+    paragraph, not five pages of stitched overviews."""
+    out: list[str] = []
+    used = 0
+    for t in texts:
+        t = (t or "").strip()
+        if not t:
+            continue
+        if used + len(t) > max_chars and out:
+            out.append("…")
+            break
+        out.append(t)
+        used += len(t)
+    return " ".join(out)
+
+
 def _merge_tone(entries: list) -> list:
     """Merge per-window tone reads into one entry per (year, parent).
 
@@ -1441,7 +1459,7 @@ def _concat_extractions(parts: list[CustodyExtraction]) -> CustodyExtraction:
     if len(parts) == 1:
         return parts[0]
     return CustodyExtraction(
-        overview=" ".join(p.overview for p in parts if p.overview),
+        overview=_clip_narrative(p.overview for p in parts),
         breakdown_basis=next((p.breakdown_basis for p in parts if p.breakdown_basis), ""),
         childcare_events=[e for p in parts for e in p.childcare_events],
         missed_or_cancelled=[e for p in parts for e in p.missed_or_cancelled],
@@ -1450,7 +1468,7 @@ def _concat_extractions(parts: list[CustodyExtraction]) -> CustodyExtraction:
         third_party_statements=[t for p in parts for t in p.third_party_statements],
         medical_appointments=[a for p in parts for a in p.medical_appointments],
         suggestions=[s for p in parts for s in p.suggestions],
-        sentiment_overview=" ".join(p.sentiment_overview for p in parts if p.sentiment_overview),
+        sentiment_overview=_clip_narrative((p.sentiment_overview for p in parts), 400),
         tone_by_period=_merge_tone([t for p in parts for t in p.tone_by_period]),
         limitations=[l for p in parts for l in p.limitations],
     )
@@ -1678,9 +1696,9 @@ def _combine_reports(partials: list[CustodyExtraction]) -> CustodyReport:
     if narrative is None:
         # Reduce failed — fall back to concatenating the window narratives.
         narrative = CustodyNarrative(
-            overview=" ".join(p.overview for p in partials),
+            overview=_clip_narrative(p.overview for p in partials),
             breakdown_basis=partials[0].breakdown_basis,
-            sentiment_overview=" ".join(p.sentiment_overview for p in partials),
+            sentiment_overview=_clip_narrative((p.sentiment_overview for p in partials), 400),
             limitations=sorted({l for p in partials for l in p.limitations})
             + ["This report was assembled from multiple time-windowed analysis passes; "
                "a communication gap spanning a window boundary may be split."],

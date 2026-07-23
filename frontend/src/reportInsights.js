@@ -205,6 +205,29 @@ export function buildReportInsights(data) {
 }
 
 /**
+ * Hard cap on the Overview narrative. Reports produced by older backends
+ * concatenated every analysis window's overview — up to five PAGES of prose.
+ * The report leads with a short synopsis (the At-a-Glance bullets carry the
+ * detail); the full text stays in the workbook's Summary tab.
+ */
+export function conciseOverview(text, { maxSentences = 4, maxChars = 700 } = {}) {
+  const full = String(text || "").trim();
+  if (!full) return { text: "", truncated: false };
+  const sentences = full.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [full];
+  let out = "";
+  let n = 0;
+  for (const s of sentences) {
+    if (n >= maxSentences || out.length + s.length > maxChars) break;
+    out += s;
+    n += 1;
+  }
+  if (!out) out = full.slice(0, maxChars);
+  out = out.trim();
+  const truncated = out.length < full.length;
+  return { text: truncated ? `${out}…` : out, truncated };
+}
+
+/**
  * Generic per-party / per-year rollup for any dated, party-attributed event
  * list — the same shape missedSummary produces, so Care Pattern, Missed and
  * others can present matching summary blocks.

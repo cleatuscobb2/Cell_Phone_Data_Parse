@@ -28,7 +28,7 @@ import {
   MISSED_TYPES,
   RESPONSIBILITY_LABELS,
 } from "./chartData.js";
-import { buildReportInsights } from "./reportInsights.js";
+import { buildReportInsights, conciseOverview } from "./reportInsights.js";
 import {
   requiredForms,
   FORM_EVIDENCE,
@@ -948,6 +948,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
     sca106,
     scaNeedsAttribution,
   } = buildReportInsights(data);
+  const overviewText = conciseOverview(report.overview);
 
   const finPayerColor =
     finSolePayer === "father" ? PDF_COLORS.father : PDF_COLORS.mother;
@@ -1051,7 +1052,13 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         </View>
 
         <Text style={styles.h2}>Overview</Text>
-        <Text style={styles.para}>{report.overview}</Text>
+        <Text style={styles.para}>{overviewText.text}</Text>
+        {overviewText.truncated ? (
+          <Text style={[styles.caption, { color: "#94a3b8" }]}>
+            Condensed — the full narrative is in the evidence workbook&rsquo;s
+            Summary tab; At a Glance below carries the key findings.
+          </Text>
+        ) : null}
 
         {/* The shape of the case up front, computed from the evidence below,
             so the reader gets the picture without reading the whole report. */}
