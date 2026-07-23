@@ -326,17 +326,26 @@ function PdfBarChart({ data, labelKey, series, height = 78 }) {
 /** Horizontal bar chart — best when categories have long names. Single
     series, or stacked when given several. Each bar sits in a track so its
     share of the maximum reads at a glance. */
-function PdfHBar({ data, labelKey, series, barH = 12 }) {
+function PdfHBar({ data, labelKey, series, barH = 12, money = false, maxRows = 20 }) {
   if (!data || data.length === 0) {
     return <Text style={styles.empty}>Not enough data to chart.</Text>;
   }
+  // Cap rows: a wrap={false} chart taller than the page gets clipped, and a
+  // 40-row bar chart is unreadable anyway. Rows arrive sorted by size, so
+  // the cut keeps the biggest and says how many it dropped.
+  const shown = data.slice(0, maxRows);
+  const dropped = data.length - shown.length;
+  const fmt = (v) =>
+    money
+      ? `$${Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+      : String(v);
   const max = Math.max(
     1,
     ...data.map((d) => series.reduce((s, sr) => s + (d[sr.key] || 0), 0)),
   );
   return (
     <View wrap={false} style={{ marginTop: 2, marginBottom: 4 }}>
-      {data.map((d, i) => {
+      {shown.map((d, i) => {
         const total = series.reduce((s, sr) => s + (d[sr.key] || 0), 0);
         return (
           <View
@@ -373,7 +382,7 @@ function PdfHBar({ data, labelKey, series, barH = 12 }) {
             </View>
             <View
               style={{
-                width: d.motherPct != null ? 66 : 18,
+                width: d.motherPct != null ? 66 : money ? 40 : 18,
                 flexDirection: "row",
                 justifyContent: "flex-end",
                 alignItems: "baseline",
@@ -382,7 +391,7 @@ function PdfHBar({ data, labelKey, series, barH = 12 }) {
               <Text
                 style={{ fontSize: 7, color: "#475569", fontFamily: "Helvetica-Bold" }}
               >
-                {total}
+                {fmt(total)}
               </Text>
               {d.motherPct != null ? (
                 <Text
@@ -397,6 +406,12 @@ function PdfHBar({ data, labelKey, series, barH = 12 }) {
           </View>
         );
       })}
+      {dropped > 0 ? (
+        <Text style={{ fontSize: 6.5, color: "#94a3b8" }}>
+          +{dropped} smaller {dropped === 1 ? "row" : "rows"} — full detail in
+          the evidence workbook.
+        </Text>
+      ) : null}
       {series.length > 1 ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 3 }}>
           {series.map((sr) => (
@@ -539,55 +554,6 @@ function Sparkline({ values, width, height, color }) {
   );
 }
 
-/** Milestone strip — the free-text "Other" responsibility entries, which is
-    where activities, milestones and one-off events land. Labels alternate
-    between two rows so neighbouring dates stay legible. */
-function PdfMilestones({ items, plotW }) {
-  const ROW = 8;
-  return (
-    <View style={{ flexDirection: "row", marginTop: 3 }} wrap={false}>
-      <View style={{ width: LABEL_W, paddingRight: 4 }}>
-        <Text style={{ fontSize: 6.5, fontFamily: "Helvetica-Bold", color: "#475569" }}>
-          Milestones
-        </Text>
-        <Text style={{ fontSize: 5, color: "#94a3b8" }}>
-          from &ldquo;Other&rdquo;
-        </Text>
-      </View>
-      <View style={{ width: plotW, height: ROW * 2 + 2 }}>
-        {items.map((m, i) => (
-          <View
-            key={`t${i}`}
-            style={{
-              position: "absolute",
-              left: m.frac * plotW,
-              top: 0,
-              width: 0.6,
-              height: ROW * 2,
-              backgroundColor: m.color,
-              opacity: 0.7,
-            }}
-          />
-        ))}
-        {items.map((m, i) => (
-          <Text
-            key={`l${i}`}
-            style={{
-              position: "absolute",
-              left: Math.max(0, Math.min(plotW - 52, m.frac * plotW + 1)),
-              top: (i % 2) * ROW,
-              fontSize: 4.6,
-              color: m.color,
-            }}
-          >
-            {m.label}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 /** One actor's strip for a year: trend sparkline, dated markers, and the
     per-month instance counts underneath. */
 function PdfGroupPlot({ group, plotW }) {
@@ -599,7 +565,7 @@ function PdfGroupPlot({ group, plotW }) {
         <Text style={{ fontSize: 7, fontFamily: "Helvetica-Bold", color: group.color }}>
           {group.label}
         </Text>
-        <Text style={{ fontSize: 5.5, color: "#94a3b8" }}>
+        <Text style={{ fontSize: 6.5, color: "#94a3b8" }}>
           {group.total} {group.total === 1 ? "entry" : "entries"}
         </Text>
       </View>
@@ -674,7 +640,7 @@ function PdfGroupPlot({ group, plotW }) {
               style={{
                 width: plotW / 12,
                 textAlign: "center",
-                fontSize: 5,
+                fontSize: 6.5,
                 fontFamily: c > 0 && c === max ? "Helvetica-Bold" : "Helvetica",
                 color: c === 0 ? "#cbd5e1" : c === max ? group.color : "#64748b",
               }}
@@ -708,8 +674,8 @@ function PdfTimelineYear({ model, plotW = PLOT_W }) {
               style={{
                 width: plotW / 12,
                 textAlign: "center",
-                fontSize: 5.5,
-                color: "#94a3b8",
+                fontSize: 7,
+                color: "#64748b",
               }}
             >
               {m}
@@ -717,12 +683,33 @@ function PdfTimelineYear({ model, plotW = PLOT_W }) {
           ))}
         </View>
       </View>
-      {model.milestones.length > 0 ? (
-        <PdfMilestones items={model.milestones} plotW={plotW} />
-      ) : null}
       {model.groups.map((g) => (
         <PdfGroupPlot key={g.key} group={g} plotW={plotW} />
       ))}
+      {/* This year's summary, right under its plots. */}
+      <View
+        style={{
+          flexDirection: "row",
+          marginTop: 3,
+          paddingTop: 3,
+          borderTopWidth: 0.5,
+          borderTopColor: "#e2e8f0",
+        }}
+      >
+        <Text style={{ width: LABEL_W, fontSize: 7, fontFamily: "Helvetica-Bold", color: "#475569" }}>
+          {model.year} summary
+        </Text>
+        <Text style={{ flex: 1, fontSize: 7, color: "#475569" }}>
+          {model.groups
+            .filter((g) => g.total > 0)
+            .map((g) => {
+              const peak = Math.max(...g.monthly);
+              const peakMonth = model.months[g.monthly.indexOf(peak)];
+              return `${g.label}: ${g.total}${peak > 0 ? ` (peak ${peakMonth}, ${peak})` : ""}`;
+            })
+            .join(" · ") || "No entries this year."}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -856,8 +843,8 @@ function ToneSection({ report, meta }) {
     <View break>
       <Text style={styles.h2}>Tone of Co-Parenting Communications</Text>
       <Text style={styles.caption}>
-        Tone by year and parent, with a representative message for each read —
-        the full transcript is the Message Log tab of the evidence workbook.
+        Tone by year and parent — the supporting messages are in the evidence
+        workbook&rsquo;s Message Log tab.
       </Text>
       {years.map((y) => (
         <View key={y} style={{ marginBottom: 5 }} wrap={false}>
@@ -880,21 +867,10 @@ function ToneSection({ report, meta }) {
                 </Text>
                 {r.summary ? ` · ${r.summary}` : ""}
               </Text>
-              {r.exemplar_quote ? (
-                <Text style={styles.quote}>
-                  &ldquo;{r.exemplar_quote}&rdquo;
-                  {r.date ? ` (${r.date})` : ""}
-                </Text>
-              ) : null}
             </View>
           ))}
         </View>
       ))}
-      {report.sentiment_overview ? (
-        <Text style={[styles.para, { marginTop: 2, color: "#475569" }]}>
-          {report.sentiment_overview}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -1219,50 +1195,15 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                 <PdfTimelineYear model={ym} plotW={timelinePlotW} />
               </View>
             ))}
-            <View wrap={false} style={{ marginTop: 6 }}>
-              <Text style={styles.caption}>Summary by year</Text>
-              <View style={medStyles.headRow}>
-                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Year</Text>
-                <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.mother }]}>
-                  {meta.user_role}
-                </Text>
-                <Text style={[medStyles.cell, { width: 80 }, medStyles.head, { color: PDF_COLORS.father }]}>
-                  Father
-                </Text>
-                <Text style={[medStyles.cell, { width: 80 }, medStyles.head]}>Third-party</Text>
-                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Gaps</Text>
-                <Text style={[medStyles.cell, { width: 60 }, medStyles.head]}>Total</Text>
-              </View>
-              {timeline.years.map((y) => {
-                const g = Object.fromEntries(y.groups.map((gr) => [gr.key, gr]));
-                return (
-                  <View key={y.year} style={medStyles.row}>
-                    <Text style={[medStyles.cell, { width: 60 }]}>{y.year}</Text>
-                    <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.mother }]}>
-                      {g.mother?.total ?? 0}
-                    </Text>
-                    <Text style={[medStyles.cell, { width: 80, color: PDF_COLORS.father }]}>
-                      {g.father?.total ?? 0}
-                    </Text>
-                    <Text style={[medStyles.cell, { width: 80 }]}>{g.thirdparty?.total ?? 0}</Text>
-                    <Text style={[medStyles.cell, { width: 60 }]}>{g.gap?.total ?? 0}</Text>
-                    <Text style={[medStyles.cell, { width: 60, fontFamily: "Helvetica-Bold" }]}>
-                      {y.groups.reduce((t, gr) => t + gr.total, 0)}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
             <Text style={{ fontSize: 6.5, color: "#94a3b8", marginTop: 4 }}>
-              One page per year, split into a plot per actor — each parent,
-              third parties, and communication gaps. The line above each strip
-              is that actor&rsquo;s month-by-month trend; the numbers beneath
-              are the instance count per month (the year&rsquo;s peak is bold).
-              Squares mark missed or cancelled visits, amber bars are
-              communication gaps, and the Milestones strip carries the
-              free-text &ldquo;Other&rdquo; entries — activities and one-off
-              events. An entry involving both parents appears on both strips;
-              entries that could not be attributed appear on neither.
+              One page per year, one plot per actor — each parent, third
+              parties, and communication gaps. The line above each strip is
+              that actor&rsquo;s month-by-month trend; the numbers beneath are
+              the instance count per month (the year&rsquo;s peak is bold),
+              with the year&rsquo;s summary under its plots. Squares mark
+              missed or cancelled visits; amber bars are communication gaps. A
+              shared entry appears on both strips; unattributed entries on
+              neither.
             </Text>
           </View>
         ) : (
@@ -1529,6 +1470,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
               }))}
               labelKey="type"
               series={RESP_SERIES}
+              maxRows={20}
             />
             <Text style={[styles.caption, { color: "#94a3b8" }]}>
               The full register — date, child, provider, and who planned,
@@ -1589,6 +1531,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                   }
                   labelKey="full"
                   series={finSolePayer ? SUB_SERIES : RESP_SERIES}
+                  money
                 />
               </View>
             )}
@@ -1610,6 +1553,8 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                   }))}
                   labelKey="sub"
                   series={SUB_SERIES}
+                  money
+                  maxRows={12}
                 />
               </View>
             ))}
@@ -2020,14 +1965,6 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             })}
           </View>
         ) : null}
-
-        <Text style={styles.h2} break>Limitations & Caveats</Text>
-        {report.limitations.map((l, i) => (
-          <View key={i} style={styles.bullet}>
-            <Text style={styles.bulletDot}>▲</Text>
-            <Text style={{ flex: 1 }}>{l}</Text>
-          </View>
-        ))}
 
         <Text style={styles.footer} fixed>
           Custodia · Confidential — prepared for legal

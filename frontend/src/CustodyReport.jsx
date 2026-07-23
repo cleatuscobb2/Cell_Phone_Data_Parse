@@ -1045,10 +1045,10 @@ export default function CustodyReport({ data }) {
           </ChartCaption>
           <ResponsiveContainer
             width="100%"
-            height={Math.max(140, medSummary.byType.length * 30 + 50)}
+            height={Math.max(140, Math.min(20, medSummary.byType.length) * 30 + 50)}
           >
             <BarChart
-              data={medSummary.byType}
+              data={medSummary.byType.slice(0, 20)}
               layout="vertical"
               barCategoryGap="24%"
               margin={{ right: 40 }}
@@ -1071,6 +1071,11 @@ export default function CustodyReport({ data }) {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          {medSummary.byType.length > 20 && (
+            <p className="mt-1 text-xs text-slate-400">
+              Showing the top 20 appointment types of {medSummary.byType.length}.
+            </p>
+          )}
           <p className="mt-2 text-xs text-slate-400">
             The full register — date, child, provider, and who planned,
             scheduled, took and paid per appointment — is the &ldquo;Medical
@@ -1546,7 +1551,7 @@ export default function CustodyReport({ data }) {
         title="Tone of Co-Parenting Communications"
         subtitle={
           toneYears.length > 0
-            ? "By year and parent, each with a representative message"
+            ? "By year and parent — supporting messages are in the evidence workbook"
             : undefined
         }
       >
@@ -1580,36 +1585,15 @@ export default function CustodyReport({ data }) {
                           <span className="text-slate-700"> · {e.summary}</span>
                         ) : null}
                       </p>
-                      {e.exemplar_quote ? (
-                        <p className="mt-0.5 text-xs italic text-slate-500">
-                          &ldquo;{e.exemplar_quote}&rdquo;
-                          {e.date ? ` (${e.date})` : ""}
-                        </p>
-                      ) : null}
                     </div>
                   ))}
                 </div>
               ))}
             </div>
-            {report.sentiment_overview ? (
-              <p className="mt-4 border-t border-slate-100 pt-3 text-sm text-slate-500">
-                {report.sentiment_overview}
-              </p>
-            ) : null}
           </>
         )}
       </Panel>
 
-      <Panel title="Limitations & Caveats">
-        <ul className="space-y-1.5">
-          {report.limitations.map((l, i) => (
-            <li key={i} className="flex gap-2 text-sm text-slate-600">
-              <span className="mt-0.5 text-amber-500">▲</span>
-              <span>{l}</span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
     </div>
   );
 }

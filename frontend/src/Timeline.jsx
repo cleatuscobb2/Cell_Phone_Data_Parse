@@ -5,9 +5,8 @@
  * overlapping markers say less than "9 in March". This view shows, per year,
  * each actor's monthly instance counts as bars (mother / father / third-party)
  * with communication gaps as shaded month bands behind them, a count label on
- * every bar, milestone chips from the free-text "Other" entries, and a
- * per-year summary table beneath — trend, volume and gaps in one look.
- * Row-level detail stays in the evidence workbook.
+ * every bar, and that year's summary line directly beneath — trend, volume
+ * and gaps in one look. Row-level detail stays in the evidence workbook.
  */
 
 import { useMemo } from "react";
@@ -128,20 +127,18 @@ function YearChart({ model, userRole }) {
         </BarChart>
       </ResponsiveContainer>
 
-      {model.milestones.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {model.milestones.map((m, i) => (
-            <span
-              key={i}
-              title={m.title}
-              className="rounded-full border px-2 py-0.5 text-xs"
-              style={{ borderColor: m.color, color: m.color }}
-            >
-              {m.label}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* This year's summary, right under its chart. */}
+      <p className="mt-1 text-xs text-slate-500">
+        <span className="font-semibold text-slate-600">{model.year} summary:</span>{" "}
+        {model.groups
+          .filter((g) => g.total > 0)
+          .map((g) => {
+            const peak = Math.max(...g.monthly);
+            const peakMonth = model.months[g.monthly.indexOf(peak)];
+            return `${g.label} ${g.total}${peak > 0 ? ` (peak ${peakMonth}: ${peak})` : ""}`;
+          })
+          .join(" · ") || "No entries this year."}
+      </p>
     </div>
   );
 }
@@ -160,66 +157,16 @@ export default function Timeline({ report, transcript, userRole = "mother" }) {
     );
   }
 
-  // Per-year summary — the trend across the whole record in one table.
-  const summary = data.years.map((y) => {
-    const g = Object.fromEntries(y.groups.map((gr) => [gr.key, gr]));
-    return {
-      year: y.year,
-      mother: g.mother?.total ?? 0,
-      father: g.father?.total ?? 0,
-      thirdparty: g.thirdparty?.total ?? 0,
-      gaps: g.gap?.total ?? 0,
-      total: y.groups.reduce((s, gr) => s + gr.total, 0),
-    };
-  });
-
   return (
     <div>
       {data.years.map((model) => (
         <YearChart key={model.year} model={model} userRole={userRole} />
       ))}
 
-      <div className="mt-2 overflow-x-auto">
-        <p className="mb-1 text-xs font-medium text-slate-500">Summary by year</p>
-        <table className="w-full min-w-[420px] text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-xs text-slate-500">
-              <th className="py-1 text-left font-semibold">Year</th>
-              <th className="py-1 text-right font-semibold" style={{ color: COLORS.mother }}>
-                {userRole}
-              </th>
-              <th className="py-1 text-right font-semibold" style={{ color: COLORS.father }}>
-                Father
-              </th>
-              <th className="py-1 text-right font-semibold" style={{ color: COLORS.thirdparty }}>
-                Third-party
-              </th>
-              <th className="py-1 text-right font-semibold" style={{ color: COLORS.gap }}>
-                Gaps
-              </th>
-              <th className="py-1 text-right font-semibold">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.map((r) => (
-              <tr key={r.year} className="border-b border-slate-50">
-                <td className="py-1 text-slate-700">{r.year}</td>
-                <td className="py-1 text-right" style={{ color: COLORS.mother }}>{r.mother}</td>
-                <td className="py-1 text-right" style={{ color: COLORS.father }}>{r.father}</td>
-                <td className="py-1 text-right" style={{ color: COLORS.thirdparty }}>{r.thirdparty}</td>
-                <td className="py-1 text-right" style={{ color: COLORS.gap }}>{r.gaps}</td>
-                <td className="py-1 text-right font-semibold text-slate-800">{r.total}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
       <p className="mt-2 text-xs text-slate-400">
         Bars are each party&rsquo;s instances per month (childcare, missed and
         responsibility entries; a shared entry counts for both). Amber bands
-        mark communication-gap months; chips are milestones from the free-text
-        &ldquo;Other&rdquo; entries. Row-level detail is in the evidence
+        mark communication-gap months. Row-level detail is in the evidence
         workbook.
       </p>
     </div>
