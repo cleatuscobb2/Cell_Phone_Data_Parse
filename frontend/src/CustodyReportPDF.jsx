@@ -353,9 +353,11 @@ function PdfHBar({ data, labelKey, series, barH = 12, money = false, maxRows = 2
             style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}
           >
             <Text
-              style={{ width: 124, fontSize: 7, color: "#475569", paddingRight: 5 }}
+              style={{ width: 130, fontSize: 7, color: "#475569", paddingRight: 5 }}
             >
-              {d[labelKey]}
+              {String(d[labelKey] ?? "").length > 34
+                ? `${String(d[labelKey]).slice(0, 33)}…`
+                : String(d[labelKey] ?? "")}
             </Text>
             <View
               style={{
@@ -1440,23 +1442,18 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
             it lives in the free-text "Other" entries — so themes are pulled
             back out and attributed per parent, each backed by a quote. */}
         {respThemes.length > 0 ? (
-          <View>
-            <Text style={styles.h2} break>Co-Parenting Themes — Per-Parent Picture</Text>
+          <View break>
+            <Text style={styles.h2}>Co-Parenting Themes — Per-Parent Picture</Text>
             <Text style={styles.caption}>
-              Cross-cutting themes drawn from every responsibility entry
-              (including the free-text &ldquo;Other&rdquo; items) — who handled
-              discipline, communication, scheduling, safety, follow-through and
-              the rest. Counts are instances mentioning that theme;{" "}
-              <Text style={{ color: PDF_COLORS.mother }}>{meta.user_role}</Text>
-              <Text> · </Text>
-              <Text style={{ color: PDF_COLORS.father }}>father</Text>.
+              Instances mentioning each theme, split by parent — counts, not
+              judgments. Quotes are in the evidence workbook.
             </Text>
             <PdfHBar data={respThemes} labelKey="label" series={RESP_SERIES} />
             {respThemes.map((t) => (
-              <View key={t.key} style={{ marginTop: 5 }} wrap={false}>
-                <Text style={{ fontFamily: "Helvetica-Bold" }}>
-                  {t.label}
-                  {` — ${t.total} total · `}
+              <View key={t.key} style={{ marginTop: 3 }}>
+                <Text style={{ fontSize: 7.5 }}>
+                  <Text style={{ fontFamily: "Helvetica-Bold" }}>{t.label}</Text>
+                  {` — ${t.total} · `}
                   <Text style={{ color: PDF_COLORS.mother }}>
                     {meta.user_role} {t.mother}
                     {t.mother + t.father > 0
@@ -1471,17 +1468,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                       : ""}
                   </Text>
                   {t.shared ? ` · shared ${t.shared}` : ""}
-                  {t.unclear ? ` · unclear ${t.unclear}` : ""}
                 </Text>
-                {["mother", "father"].map((p) =>
-                  t.exemplars[p] ? (
-                    <Text key={p} style={styles.quote}>
-                      {p === "father" ? "Father" : meta.user_role}:{" "}
-                      &ldquo;{t.exemplars[p].text}&rdquo;
-                      {t.exemplars[p].date ? ` (${t.exemplars[p].date})` : ""}
-                    </Text>
-                  ) : null,
-                )}
               </View>
             ))}
           </View>
@@ -1490,8 +1477,8 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         {/* Medical appointment register — each caregiving role attributed
             separately when the analysis captured them. */}
         {medical.rows.length > 0 ? (
-          <View>
-            <Text style={styles.h2} break>Medical Appointments</Text>
+          <View break>
+            <Text style={styles.h2}>Medical Appointments</Text>
             <Text style={styles.caption}>
               {medical.rows.length} appointment
               {medical.rows.length === 1 ? "" : "s"} on record
@@ -1559,18 +1546,16 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         ) : null}
 
         {fin.hasExpenses && (
-          <View>
-            <Text style={styles.h2} break>
+          <View break>
+            <Text style={styles.h2}>
               Financial Contribution
               {finSolePayer ? ` — ${finPayerLabel}` : ""}
             </Text>
             <Text style={styles.caption}>
-              {usd(finTotalShown)} in child-related expenses
-              {fin.period ? ` · ${fin.period.start} to ${fin.period.end}` : ""}
-              {" · "}{expenses.length} document{expenses.length === 1 ? "" : "s"}
-              {finSolePayer
-                ? ` · every document on file is ${finPayerLabel}’s payment`
-                : ""}
+              {usd(finTotalShown)} in child-related expenses across{" "}
+              {expenses.length} documents
+              {finSolePayer ? ` — all paid by ${finPayerLabel}` : ""}
+              {fin.period ? ` (${fin.period.start} to ${fin.period.end})` : ""}
             </Text>
             <View style={styles.statRow} wrap={false}>
               <View style={styles.stat}>
@@ -1720,8 +1705,11 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
               <View style={{ marginTop: 8 }}>
                 <Text style={styles.caption}>
                   Cross-validation findings — {finFindings.length}
+                  {finFindings.length > 8
+                    ? " (first 8 — full list in the workbook's Financial Findings tab)"
+                    : ""}
                 </Text>
-                {finFindings.map((f, i) => (
+                {finFindings.slice(0, 8).map((f, i) => (
                   <View key={i} style={styles.bullet} wrap={false}>
                     <Text style={styles.bulletDot}>▲</Text>
                     <Text style={{ flex: 1 }}>
@@ -1948,8 +1936,8 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
           </View>
         )}
 
-        <View>
-          <Text style={styles.h2} break>Third-Party Statements</Text>
+        <View break>
+          <Text style={styles.h2}>Third-Party Statements</Text>
           {thirdParty.total === 0 ? (
             <Text style={styles.empty}>
               No third-party statements were identified.
