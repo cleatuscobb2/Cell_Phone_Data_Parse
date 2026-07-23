@@ -519,7 +519,7 @@ export default function CustodyReport({ data }) {
         {overviewText.truncated && (
           <p className="mt-2 text-xs text-slate-400">
             Condensed — the full narrative is in the evidence workbook&rsquo;s
-            Summary tab; the bullets below carry the key findings.
+            Summary tab; the comparison below carries the key findings.
           </p>
         )}
         {parentCompare && (
@@ -566,24 +566,20 @@ export default function CustodyReport({ data }) {
             </table>
           </div>
         )}
+        {findings.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="mb-1 text-xs font-medium text-slate-500">Also notable</p>
+            <ul className="space-y-1">
+              {findings.map((f, i) => (
+                <li key={i} className="flex gap-2 text-sm text-slate-700">
+                  <span className="mt-0.5 text-amber-500">•</span>
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Panel>
-
-      {/* The shape of the case up front — same findings as the PDF. */}
-      {findings.length > 0 && (
-        <Panel
-          title="At a Glance"
-          subtitle="Computed from the evidence in this report — every figure is supported by the sections below and the evidence workbook"
-        >
-          <ul className="space-y-2">
-            {findings.map((f, i) => (
-              <li key={i} className="flex gap-2 text-sm text-slate-700">
-                <span className="mt-0.5 text-amber-500">•</span>
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
 
       {hasCaseProfile && (
         <Panel

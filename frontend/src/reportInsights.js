@@ -91,85 +91,29 @@ export function buildReportInsights(data) {
       (partyTotals.mother || 0) + (partyTotals.father || 0) === 0,
   );
 
-  // --- At a Glance -------------------------------------------------------
+  // --- Notable bullets (merged into the Overview) -----------------------
+  // Only whole-record facts the side-by-side comparison does not already
+  // show — per-parent care, responsibilities, tone and themes live there.
   const findings = [];
   const attributed =
     (cb.instances_with_mother || 0) +
     (cb.instances_with_father || 0) +
     (cb.instances_shared || 0);
-  if (attributed > 0) {
+  if ((cb.instances_unclear || 0) > 0) {
     findings.push(
-      `Childcare splits ${cb.estimated_pct_mother ?? 0}% / ` +
-        `${cb.estimated_pct_father ?? 0}% (${userRole} / father) across ` +
-        `${attributed} attributable instance${attributed === 1 ? "" : "s"}` +
-        (cb.instances_unclear
-          ? `; ${cb.instances_unclear} could not be attributed.`
-          : "."),
+      `${cb.instances_unclear} childcare instance${cb.instances_unclear === 1 ? "" : "s"} could not be attributed to a parent.`,
     );
   }
   if (missed.total > 0) {
     const worst = [...missed.byYear].sort((a, b) => b.total - a.total)[0];
     findings.push(
       `${missed.total} missed or cancelled visit${missed.total === 1 ? "" : "s"}` +
-        (missed.hasParty
-          ? ` — ${missed.byParty.father} attributed to father, ` +
-            `${missed.byParty.mother} to ${userRole}`
-          : "") +
         (worst ? `; ${worst.year} was the heaviest year (${worst.total}).` : "."),
     );
   }
-  if (responsibilities.length > 0) {
-    const mTot = responsibilities.reduce((s, r) => s + r.mother, 0);
-    const fTot = responsibilities.reduce((s, r) => s + r.father, 0);
-    findings.push(
-      `Of ${(report.responsibility_events || []).length} parenting-responsibility ` +
-        `entries, ${userRole} handled ${mTot} and father ${fTot}; the heaviest ` +
-        `category is ${responsibilities[0].full}.`,
-    );
-  }
   if (medical.rows.length > 0) {
-    const n = medical.rows.length;
-    const tally = (field) =>
-      medical.rows.reduce(
-        (acc, r) => {
-          const v = r[field];
-          if (v === "mother" || v === "father") acc[v] += 1;
-          return acc;
-        },
-        { mother: 0, father: 0 },
-      );
-    const took = medical.derived ? tally("handled_by") : tally("taken_by");
     findings.push(
-      `${n} medical appointment${n === 1 ? "" : "s"} on record` +
-        (took.mother + took.father > 0
-          ? ` — ${took.mother} ${medical.derived ? "handled" : "attended"} by ` +
-            `${userRole}, ${took.father} by father`
-          : "") +
-        ".",
-    );
-  }
-  if (respThemes.length > 0) {
-    const lopsided = respThemes
-      .map((t) => ({ ...t, gap: Math.abs(t.mother - t.father) }))
-      .filter((t) => t.gap > 0)
-      .sort((a, b) => b.gap - a.gap)
-      .slice(0, 3);
-    if (lopsided.length > 0) {
-      findings.push(
-        "Most one-sided themes: " +
-          lopsided
-            .map((t) => `${t.label} (${userRole} ${t.mother} vs father ${t.father})`)
-            .join("; ") +
-          ".",
-      );
-    }
-  }
-  if (fin.hasExpenses) {
-    findings.push(
-      `${usd(finTotalShown)} in documented child-related expenses across ` +
-        `${expenses.length} document${expenses.length === 1 ? "" : "s"}` +
-        (finSolePayer ? `, all paid by ${finPayerLabel}` : "") +
-        ".",
+      `${medical.rows.length} medical appointment${medical.rows.length === 1 ? "" : "s"} on record — see Medical Appointments.`,
     );
   }
   const gaps = report.communication_gaps || [];
@@ -195,11 +139,11 @@ export function buildReportInsights(data) {
       .map((r) => r.short);
   const themeLead = (party) =>
     respThemes
-      .map((t) => ({ label: t.label, diff: t[party] - t[party === "mother" ? "father" : "mother"] }))
-      .filter((t) => t.diff > 0)
-      .sort((a, b) => b.diff - a.diff)
+      .map((t) => ({ label: t.label, n: t[party] || 0 }))
+      .filter((t) => t.n > 0)
+      .sort((a, b) => b.n - a.n)
       .slice(0, 2)
-      .map((t) => t.label);
+      .map((t) => `${t.label} (${t.n})`);
   const toneOf = (party) => {
     const entries = (report.tone_by_period || []).filter((t) => t.party === party);
     if (!entries.length) return null;
@@ -252,7 +196,6 @@ export function buildReportInsights(data) {
             { dim: "Care & time", key: "care" },
             { dim: "Responsibilities", key: "responsibilities" },
             { dim: "Communication & tone", key: "communication" },
-            { dim: "Contributions", key: "contributions" },
             { dim: "Most-mentioned themes", key: "strengths" },
           ],
           mother: cell("mother"),

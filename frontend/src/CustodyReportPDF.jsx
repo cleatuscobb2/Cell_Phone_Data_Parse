@@ -1059,7 +1059,7 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
         {overviewText.truncated ? (
           <Text style={[styles.caption, { color: "#94a3b8" }]}>
             Condensed — the full narrative is in the evidence workbook&rsquo;s
-            Summary tab; At a Glance below carries the key findings.
+            Summary tab; the comparison below carries the key findings.
           </Text>
         ) : null}
 
@@ -1130,27 +1130,20 @@ export default function CustodyReportPDF({ data, orientation = "portrait" }) {
                 </Text>
               </View>
             ))}
+            {findings.length > 0 ? (
+              <View style={{ marginTop: 5 }}>
+                <Text style={styles.caption}>Also notable</Text>
+                {findings.map((f, i) => (
+                  <View key={i} style={styles.bullet}>
+                    <Text style={styles.bulletDot}>•</Text>
+                    <Text style={{ flex: 1 }}>{f}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
-        {/* The shape of the case up front, computed from the evidence below,
-            so the reader gets the picture without reading the whole report. */}
-        {findings.length > 0 ? (
-          <View wrap={false}>
-            <Text style={styles.h2}>At a Glance</Text>
-            <Text style={styles.caption}>
-              Computed directly from the evidence in this report — every figure
-              below is supported by the detail sections and the evidence
-              workbook.
-            </Text>
-            {findings.map((f, i) => (
-              <View key={i} style={styles.bullet}>
-                <Text style={styles.bulletDot}>•</Text>
-                <Text style={{ flex: 1 }}>{f}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
 
         {requiredFormList.length > 0 ? (
           <View>
